@@ -10,6 +10,7 @@ import os
 
 from pants.base.build_file import BuildFile
 from pants.base.specs import DescendantAddresses, SiblingAddresses
+from pants.build_graph.address import BuildFileAddress
 from pants.build_graph.address_mapper import AddressMapper
 from pants.engine.addressable import Addresses
 from pants.engine.build_files import BuildDirs, BuildFiles
@@ -64,9 +65,7 @@ class LegacyAddressMapper(AddressMapper):
 
   def scan_specs(self, specs, fail_fast=True):
     try:
-      addresses = set(address
-                      for a in self._engine.product_request(Addresses, specs)
-                      for address in a.dependencies)
+      addresses = set(self._engine.product_request(BuildFileAddress, specs))
     except ExecutionError as e:
       raise self.BuildFileScanError(str(e))
     return addresses

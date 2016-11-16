@@ -248,3 +248,7 @@ class BuildFileAddress(Address):
     :rtype: :class:`pants.base.build_file.BuildFile`
     """
     return self._build_file
+
+  def __repr__(self):
+    return ('BuildFileAddress({rel_path}, {target_name})'
+            .format(rel_path=self.rel_path, target_name=self.target_name))
