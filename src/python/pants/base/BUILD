@@ -187,12 +187,3 @@ python_library(
     '3rdparty/python:six',
   ],
 )
-
-python_library(
-  name='exiter',
-  sources=['exiter.py'],
-  dependencies=[
-    '3rdparty/python:faulthandler',
-    'src/python/pants/util:dirutil'
-  ]
-)

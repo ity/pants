@@ -8,11 +8,8 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
 import datetime
 import logging
 import os
-import signal
 import sys
 import traceback
-
-import faulthandler
 
 from pants.util.dirutil import safe_open
 
@@ -113,12 +110,6 @@ class Exiter(object):
         # we don't want to hide the original error.
         logger.error('Problem logging original exception: {}'.format(e))
 
-  def _setup_faulthandler(self, trace_stream):
-    faulthandler.enable(trace_stream)
-    # This permits a non-fatal `kill -31 <pants pid>` for stacktrace retrieval.
-    faulthandler.register(signal.SIGUSR2, trace_stream, chain=True)
-
-  def set_except_hook(self, trace_stream=None):
+  def set_except_hook(self):
     """Sets the global exception hook."""
-    self._setup_faulthandler(trace_stream or sys.stderr)
     sys.excepthook = self.handle_unhandled_exception

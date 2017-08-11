@@ -12,25 +12,21 @@ import threading
 
 from setproctitle import setproctitle as set_process_title
 
-from pants.base.exiter import Exiter
 from pants.goal.run_tracker import RunTracker
 from pants.logging.setup import setup_logging
 from pants.pantsd.process_manager import ProcessManager
 
 
-class _LoggerStream(object):
+class _StreamLogger(object):
   """A sys.{stdout,stderr} replacement that pipes output to a logger."""
 
-  def __init__(self, logger, log_level, logger_stream):
+  def __init__(self, logger, log_level):
     """
     :param logging.Logger logger: The logger instance to emit writes to.
     :param int log_level: The log level to use for the given logger.
-    :param file logger_stream: The underlying file object the logger is writing to, for
-                               determining the fileno to support faulthandler logging.
     """
     self._logger = logger
     self._log_level = log_level
-    self._stream = logger_stream
 
   def write(self, msg):
     for line in msg.rstrip().splitlines():
@@ -41,9 +37,6 @@ class _LoggerStream(object):
 
   def isatty(self):
     return False
-
-  def fileno(self):
-    return self._stream.fileno()
 
 
 class PantsDaemon(ProcessManager):
@@ -65,6 +58,7 @@ class PantsDaemon(ProcessManager):
     :param tuple services: A tuple of PantsService instances to launch/manage. (Optional)
     :param callable reset_func: Called after the daemon is forked to reset
                                 any state inherited from the parent process. (Optional)
+
     """
     super(PantsDaemon, self).__init__(name='pantsd', metadata_base_dir=metadata_base_dir)
     self._logger = logging.getLogger(__name__)
@@ -78,7 +72,6 @@ class PantsDaemon(ProcessManager):
     self._socket_map = {}
     # N.B. This Event is used as nothing more than a convenient atomic flag - nothing waits on it.
     self._kill_switch = threading.Event()
-    self._exiter = Exiter()
 
   @property
   def is_killed(self):
@@ -123,18 +116,16 @@ class PantsDaemon(ProcessManager):
     logging.shutdown()
 
     # Reinitialize logging for the daemon context.
-    result = setup_logging(log_level, log_dir=self._log_dir, log_name=self.LOG_NAME)
+    setup_logging(log_level, console_stream=None, log_dir=self._log_dir, log_name=self.LOG_NAME)
 
     # Close out pre-fork file descriptors.
     self._close_fds()
 
     # Redirect stdio to the root logger.
-    sys.stdout = _LoggerStream(logging.getLogger(), logging.INFO, result.log_stream)
-    sys.stderr = _LoggerStream(logging.getLogger(), logging.WARN, result.log_stream)
+    sys.stdout = _StreamLogger(logging.getLogger(), logging.INFO)
+    sys.stderr = _StreamLogger(logging.getLogger(), logging.WARN)
 
     self._logger.debug('logging initialized')
-
-    return result.log_stream
 
   def _setup_services(self, services):
     for service in services:
@@ -176,8 +167,7 @@ class PantsDaemon(ProcessManager):
   def _run(self):
     """Synchronously run pantsd."""
     # Switch log output to the daemon's log stream from here forward.
-    log_stream = self._setup_logging(self._log_level)
-    self._exiter.set_except_hook(log_stream)
+    self._setup_logging(self._log_level)
     self._logger.info('pantsd starting, log level is {}'.format(self._log_level))
 
     # Purge as much state as possible from the pants run that launched us.
