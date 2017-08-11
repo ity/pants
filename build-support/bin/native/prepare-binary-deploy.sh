@@ -94,12 +94,12 @@ function emit_linux_files() {
 __EOF__
 }
 
-if [ "${OS_NAME}" == "mac" ]
-then
-  emit_osx_files
-else
-  emit_linux_files
-fi
+#if [ "${OS_NAME}" == "mac" ]
+#then
+#  emit_osx_files
+#else
+emit_linux_files
+#fi
 
 cat << __EOF__ >> ${REPO_ROOT}/native-engine.bintray.json
   ]
