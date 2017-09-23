@@ -6,20 +6,17 @@ use boxfuture::{Boxable, BoxFuture};
 use futures::Future;
 use futures::future::join_all;
 use itertools::Itertools;
-use {Digest, File, PathStat, Store};
+use {Digest, File, FileContent, PathStat, Store};
 use hash::Fingerprint;
 use protobuf;
 use std::ffi::OsString;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Clone, PartialEq)]
 pub struct Snapshot {
-  // TODO: In a follow-up commit, fingerprint will be removed, and digest will be made non-optional.
-  // They both exist right now as a compatibility shim so that the tar-based code and
-  // Directory-based code can peacefully co-exist.
-  pub fingerprint: Fingerprint,
-  pub digest: Option<Digest>,
+  pub digest: Digest,
   pub path_stats: Vec<PathStat>,
 }
 
@@ -28,17 +25,30 @@ pub trait GetFileDigest<Error> {
 }
 
 impl Snapshot {
-  pub fn from_path_stats<GFD: GetFileDigest<Error> + Sized, Error: fmt::Debug + 'static + Send>(
+  pub fn from_path_stats<
+    GFD: GetFileDigest<Error> + Sized + Clone,
+    Error: fmt::Debug + 'static + Send,
+  >(
     store: Arc<Store>,
-    file_digester: Arc<GFD>,
+    file_digester: GFD,
     mut path_stats: Vec<PathStat>,
+  ) -> BoxFuture<Snapshot, String> {
+    path_stats.sort_by(|a, b| a.path().cmp(b.path()));
+    Snapshot::from_sorted_path_stats(store, file_digester, path_stats)
+  }
+
+  fn from_sorted_path_stats<
+    GFD: GetFileDigest<Error> + Sized + Clone,
+    Error: fmt::Debug + 'static + Send,
+  >(
+    store: Arc<Store>,
+    file_digester: GFD,
+    path_stats: Vec<PathStat>,
   ) -> BoxFuture<Snapshot, String> {
     let mut file_futures: Vec<BoxFuture<bazel_protos::remote_execution::FileNode, String>> =
       Vec::new();
     let mut dir_futures: Vec<BoxFuture<bazel_protos::remote_execution::DirectoryNode, String>> =
       Vec::new();
-
-    path_stats.sort_by(|a, b| a.path().cmp(b.path()));
 
     for (first_component, group) in
       &path_stats.iter().cloned().group_by(|s| {
@@ -89,14 +99,14 @@ impl Snapshot {
       } else {
         dir_futures.push(
           // TODO: Memoize this in the graph
-          Snapshot::from_path_stats(
+          Snapshot::from_sorted_path_stats(
             store.clone(),
             file_digester.clone(),
             paths_of_child_dir(path_group),
           ).and_then(move |snapshot| {
             let mut dir_node = bazel_protos::remote_execution::DirectoryNode::new();
             dir_node.set_name(osstring_as_utf8(first_component)?);
-            dir_node.set_digest(snapshot.digest.unwrap().into());
+            dir_node.set_digest(snapshot.digest.into());
             Ok(dir_node)
           })
             .to_boxed(),
@@ -111,11 +121,76 @@ impl Snapshot {
         directory.set_files(protobuf::RepeatedField::from_vec(files));
         store.record_directory(&directory).map(move |digest| {
           Snapshot {
-            fingerprint: digest.0,
-            digest: Some(digest),
+            digest: digest,
             path_stats: path_stats,
           }
         })
+      })
+      .to_boxed()
+  }
+
+  pub fn contents(self, store: Arc<Store>) -> BoxFuture<Vec<FileContent>, String> {
+    Snapshot::contents_for_directory_helper(self.digest.0, store, PathBuf::from(""))
+      .map(|mut v| {
+        v.sort_by(|a, b| a.path.cmp(&b.path));
+        v
+      })
+      .to_boxed()
+  }
+
+  // Assumes that all fingerprints it encounters are valid.
+  // Returns an unsorted Vec.
+  fn contents_for_directory_helper(
+    fingerprint: Fingerprint,
+    store: Arc<Store>,
+    path_so_far: PathBuf,
+  ) -> BoxFuture<Vec<FileContent>, String> {
+    store
+      .load_directory_proto(fingerprint)
+      .and_then(move |maybe_dir| {
+        maybe_dir.ok_or_else(|| {
+          format!("Could not find directory with fingerprint {}", fingerprint)
+        })
+      })
+      .and_then(move |dir| {
+        let file_futures = join_all(
+          dir
+            .get_files()
+            .iter()
+            .map(|file_node| {
+              let path = path_so_far.join(file_node.get_name());
+              store
+                .load_file_bytes(
+                  Fingerprint::from_hex_string(file_node.get_digest().get_hash()).unwrap(),
+                )
+                .and_then(|maybe_bytes| {
+                  maybe_bytes
+                    .ok_or_else(|| format!("Couldn't find file contents for {:?}", path))
+                    .map(|content| FileContent { path, content })
+                })
+            })
+            .collect::<Vec<_>>(),
+        );
+        let dir_futures = join_all(
+          dir
+            .get_directories()
+            .iter()
+            .map(|dir_node| {
+              Snapshot::contents_for_directory_helper(
+                Fingerprint::from_hex_string(dir_node.get_digest().get_hash()).unwrap(),
+                store.clone(),
+                path_so_far.join(dir_node.get_name()),
+              )
+            })
+            .collect::<Vec<_>>(),
+        );
+        file_futures.join(dir_futures)
+      })
+      .map(|(mut files, dirs)| {
+        for mut dir in dirs.into_iter() {
+          files.append(&mut dir)
+        }
+        files
       })
       .to_boxed()
   }
@@ -125,8 +200,7 @@ impl fmt::Debug for Snapshot {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(
       f,
-      "Snapshot({}, digest={:?}, entries={})",
-      self.fingerprint.to_hex(),
+      "Snapshot(digest={:?}, entries={})",
       self.digest,
       self.path_stats.len()
     )
@@ -174,24 +248,26 @@ mod tests {
   use tempdir::TempDir;
   use self::testutil::make_file;
 
-  use super::super::{Digest, File, Fingerprint, GetFileDigest, PathGlobs, PathStat, PosixFS,
-                     ResettablePool, Snapshot, Store, VFS};
+  use super::super::{Digest, File, FileContent, Fingerprint, GetFileDigest, PathGlobs, PathStat,
+                     PosixFS, ResettablePool, Snapshot, Store, VFS};
 
   use std;
   use std::error::Error;
   use std::path::PathBuf;
   use std::sync::Arc;
 
+  const AGGRESSIVE: &str = "Aggressive";
+  const LATIN: &str = "Chaetophractus villosus";
   const STR: &str = "European Burmese";
 
-  fn setup() -> (Arc<Store>, TempDir, Arc<PosixFS>, Arc<FileSaver>) {
+  fn setup() -> (Arc<Store>, TempDir, Arc<PosixFS>, FileSaver) {
     let pool = Arc::new(ResettablePool::new("test-pool-".to_string()));
     let store = Arc::new(
       Store::new(TempDir::new("lmdb_store").unwrap(), pool.clone()).unwrap(),
     );
     let dir = TempDir::new("root").unwrap();
     let posix_fs = Arc::new(PosixFS::new(dir.path(), pool, vec![]).unwrap());
-    let digester = Arc::new(FileSaver(store.clone(), posix_fs.clone()));
+    let digester = FileSaver(store.clone(), posix_fs.clone());
     (store, dir, posix_fs, digester)
   }
 
@@ -203,17 +279,17 @@ mod tests {
     make_file(&dir.path().join(&file_name), STR.as_bytes(), 0o600);
 
     let path_stats = expand_all_sorted(posix_fs);
-    // TODO: Inline when only used once
-    let fingerprint = Fingerprint::from_hex_string(
-      "63949aa823baf765eff07b946050d76ec0033144c785a94d3ebd82baa931cd16",
-    ).unwrap();
     assert_eq!(
       Snapshot::from_path_stats(store, digester, path_stats.clone())
         .wait()
         .unwrap(),
       Snapshot {
-        fingerprint: fingerprint,
-        digest: Some(Digest(fingerprint, 80)),
+        digest: Digest(
+          Fingerprint::from_hex_string(
+            "63949aa823baf765eff07b946050d76ec0033144c785a94d3ebd82baa931cd16",
+          ).unwrap(),
+          80,
+        ),
         path_stats: path_stats,
       }
     );
@@ -229,17 +305,17 @@ mod tests {
     make_file(&dir.path().join(&roland), STR.as_bytes(), 0o600);
 
     let path_stats = expand_all_sorted(posix_fs);
-    // TODO: Inline when only used once
-    let fingerprint = Fingerprint::from_hex_string(
-      "8b1a7ea04eaa2527b35683edac088bc826117b53b7ec6601740b55e20bce3deb",
-    ).unwrap();
     assert_eq!(
       Snapshot::from_path_stats(store, digester, path_stats.clone())
         .wait()
         .unwrap(),
       Snapshot {
-        fingerprint: fingerprint,
-        digest: Some(Digest(fingerprint, 78)),
+        digest: Digest(
+          Fingerprint::from_hex_string(
+            "8b1a7ea04eaa2527b35683edac088bc826117b53b7ec6601740b55e20bce3deb",
+          ).unwrap(),
+          78,
+        ),
         path_stats: path_stats,
       }
     );
@@ -261,22 +337,76 @@ mod tests {
     let sorted_path_stats = expand_all_sorted(posix_fs);
     let mut unsorted_path_stats = sorted_path_stats.clone();
     unsorted_path_stats.reverse();
-    // TODO: Inline when only used once
-    let fingerprint = Fingerprint::from_hex_string(
-      "fbff703bdaac62accf2ea5083bcfed89292073bf710ef9ad14d9298c637e777b",
-    ).unwrap();
     assert_eq!(
       Snapshot::from_path_stats(store, digester, unsorted_path_stats)
         .wait()
         .unwrap(),
       Snapshot {
-        fingerprint: fingerprint,
-        digest: Some(Digest(fingerprint, 232)),
+        digest: Digest(
+          Fingerprint::from_hex_string(
+            "fbff703bdaac62accf2ea5083bcfed89292073bf710ef9ad14d9298c637e777b",
+          ).unwrap(),
+          232,
+        ),
         path_stats: sorted_path_stats,
       }
     );
   }
 
+  #[test]
+  fn contents_for_one_file() {
+    let (store, dir, posix_fs, digester) = setup();
+
+    let file_name = PathBuf::from("roland");
+    make_file(&dir.path().join(&file_name), STR.as_bytes(), 0o600);
+
+    let contents = Snapshot::from_path_stats(store.clone(), digester, expand_all_sorted(posix_fs))
+      .wait()
+      .unwrap()
+      .contents(store)
+      .wait()
+      .unwrap();
+    assert_snapshot_contents(contents, vec![(file_name, STR)]);
+  }
+
+  #[test]
+  fn contents_for_files_in_multiple_directories() {
+    let (store, dir, posix_fs, digester) = setup();
+
+    let armadillos = PathBuf::from("armadillos");
+    let armadillos_abs = dir.path().join(&armadillos);
+    std::fs::create_dir_all(&armadillos_abs).unwrap();
+    let amy = armadillos.join("amy");
+    make_file(&dir.path().join(&amy), LATIN.as_bytes(), 0o600);
+    let rolex = armadillos.join("rolex");
+    make_file(&dir.path().join(&rolex), AGGRESSIVE.as_bytes(), 0o600);
+
+    let cats = PathBuf::from("cats");
+    let cats_abs = dir.path().join(&cats);
+    std::fs::create_dir_all(&cats_abs).unwrap();
+    let roland = cats.join("roland");
+    make_file(&dir.path().join(&roland), STR.as_bytes(), 0o600);
+
+    let dogs = PathBuf::from("dogs");
+    let dogs_abs = dir.path().join(&dogs);
+    std::fs::create_dir_all(&dogs_abs).unwrap();
+
+    let path_stats_sorted = expand_all_sorted(posix_fs);
+    let mut path_stats_reversed = path_stats_sorted.clone();
+    path_stats_reversed.reverse();
+    let contents = Snapshot::from_path_stats(store.clone(), digester, path_stats_reversed)
+      .wait()
+      .unwrap()
+      .contents(store)
+      .wait()
+      .unwrap();
+    assert_snapshot_contents(
+      contents,
+      vec![(amy, LATIN), (rolex, AGGRESSIVE), (roland, STR)],
+    );
+  }
+
+  #[derive(Clone)]
   struct FileSaver(Arc<Store>, Arc<PosixFS>);
 
   impl GetFileDigest<String> for FileSaver {
@@ -302,5 +432,17 @@ mod tests {
       .unwrap();
     v.sort_by(|a, b| a.path().cmp(b.path()));
     v
+  }
+
+  fn assert_snapshot_contents(contents: Vec<FileContent>, expected: Vec<(PathBuf, &str)>) {
+    let expected_with_array: Vec<_> = expected
+      .into_iter()
+      .map(|(path, s)| (path, s.as_bytes().to_vec()))
+      .collect();
+    let got: Vec<_> = contents
+      .into_iter()
+      .map(|file_content| (file_content.path, file_content.content))
+      .collect();
+    assert_eq!(expected_with_array, got);
   }
 }

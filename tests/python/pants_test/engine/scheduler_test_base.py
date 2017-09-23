@@ -69,6 +69,7 @@ class SchedulerTestBase(object):
     return request
 
   def execute(self, scheduler, product, *subjects):
+    print("test execute")
     """Runs an ExecutionRequest for the given product and subjects, and returns the result value."""
     request = self.execute_request(scheduler, product, *subjects)
     states = [state for _, state in scheduler.root_entries(request)]

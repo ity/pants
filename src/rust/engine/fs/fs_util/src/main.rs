@@ -227,7 +227,7 @@ fn execute(top_match: clap::ArgMatches) -> Result<(), ExitError> {
                 paths,
               )
             })
-            .map(|snapshot| snapshot.digest.unwrap())
+            .map(|snapshot| snapshot.digest)
             .wait()?;
           Ok(println!("{} {}", digest.0, digest.1))
         }
