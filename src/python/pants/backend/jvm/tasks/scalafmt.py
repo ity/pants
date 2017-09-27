@@ -33,6 +33,8 @@ class ScalaFmt(NailgunTask, AbstractClass):
     register('--skip', type=bool, fingerprint=False, help='Skip Scalafmt Check')
     register('--configuration', advanced=True, type=file_option, fingerprint=True,
               help='Path to scalafmt config file, if not specified default scalafmt config used')
+    register('--transitive', default=True, type=bool,
+              help='Apply on all targets in the transitive closure of the given target.')
     register('--target-types',
              default=['scala_library', 'junit_tests', 'java_tests'],
              advanced=True,
@@ -63,7 +65,11 @@ class ScalaFmt(NailgunTask, AbstractClass):
     if self.get_options().skip:
       return
 
-    targets = self.get_non_synthetic_scala_targets(self.context.targets())
+    self.transitive = self.get_options().transitive
+    if self.transitive:
+      targets = self.get_non_synthetic_scala_targets(self.context.targets())
+    else:
+      targets = self.get_non_synthetic_scala_targets(self.context.target_roots)
 
     with self.invalidated(targets) as invalidation_check:
       invalid_targets = [vt.target for vt in invalidation_check.invalid_vts]
