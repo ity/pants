@@ -7,10 +7,14 @@
 java_thrift_library(name='distance-java',
   sources=['distance.thrift'],
   provides = artifact(org='org.pantsbuild.example',
-                      name='distance-thrift-scala',
+                      name='distance-thrift-java',
                       repo=public),
 )
 
 python_thrift_library(name='distance-python',
   sources=['distance.thrift'],
+  provides=setup_py(
+    name='pantsbuild.pants.distance-thrift-python',
+    version='0.0.1',
+  )
 )

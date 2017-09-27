@@ -13,12 +13,11 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 /**
- * This test insures that the junit and hamcrest classes work for a junit test.
+ * This test ensures that the junit and hamcrest classes work for a junit test.
  */
 public class MatcherTest {
 
-  class FooMatcher extends BaseMatcher<String> {
-
+  static class FooMatcher extends BaseMatcher<String> {
     @Override public boolean matches(Object o) {
       assertTrue(String.class.isInstance(o));
       String value = (String) o;

@@ -14,30 +14,18 @@ python_library(
 
 python_library(
   name = 'project_tree',
-  sources = ['project_tree.py'],
+  sources = ['file_system_project_tree.py', 'project_tree.py', 'project_tree_factory.py',
+             'scm_project_tree.py'],
   dependencies = [
+    ':deprecated',
     '3rdparty/python:pathspec',
+    '3rdparty/python:scandir',
+    '3rdparty/python:six',
+    ':build_environment',
     'src/python/pants/util:dirutil',
+    'src/python/pants/util:memo',
     'src/python/pants/util:meta',
     'src/python/pants/util:objects',
-  ]
-)
-
-python_library(
-  name = 'file_system_project_tree',
-  sources = ['file_system_project_tree.py'],
-  dependencies = [
-    ':project_tree',
-    'src/python/pants/util:dirutil',
-  ]
-)
-
-python_library(
-  name = 'scm_project_tree',
-  sources = ['scm_project_tree.py'],
-  dependencies = [
-    ':project_tree',
-    'src/python/pants/util:memo',
   ]
 )
 
@@ -76,6 +64,7 @@ python_library(
     '3rdparty/python:six',
     ':revision',
     'src/python/pants:version',
+    'src/python/pants/util:memo',
   ]
 )
 
@@ -88,6 +77,7 @@ python_library(
   name = 'fingerprint_strategy',
   sources = ['fingerprint_strategy.py'],
   dependencies = [
+    ':deprecated',
     'src/python/pants/util:meta',
   ]
 )
@@ -196,4 +186,13 @@ python_library(
     '3rdparty/python/twitter/commons:twitter.common.dirutil',
     '3rdparty/python:six',
   ],
+)
+
+python_library(
+  name='exiter',
+  sources=['exiter.py'],
+  dependencies=[
+    '3rdparty/python:faulthandler',
+    'src/python/pants/util:dirutil'
+  ]
 )

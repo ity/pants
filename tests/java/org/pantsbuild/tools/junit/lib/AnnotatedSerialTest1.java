@@ -20,7 +20,7 @@ import static org.junit.Assert.assertTrue;
  * To properly exercise this function, both test classes must be running at the same time with
  * the flags:
  * <pre>
- *  -default-parallel -parallel-threads 2
+ *  -default-concurrency PARALLEL_CLASSES -parallel-threads 2
  * </pre>
  * when running with just these two classes as specs.
  * <p>
@@ -32,6 +32,10 @@ import static org.junit.Assert.assertTrue;
 public class AnnotatedSerialTest1 {
   private static final int WAIT_TIMEOUT_MS = 1000;
   private static final AtomicBoolean waiting = new AtomicBoolean(false);
+
+  public static void reset() {
+    waiting.set(false);
+  }
 
   @Test
   public void astest1() throws Exception {

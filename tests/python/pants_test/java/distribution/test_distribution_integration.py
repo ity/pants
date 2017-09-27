@@ -12,17 +12,15 @@ from unittest import skipIf
 from pants.java.distribution.distribution import Distribution, DistributionLocator
 from pants.util.osutil import OS_ALIASES, get_os_name
 from pants_test.pants_run_integration_test import PantsRunIntegrationTest
-from pants_test.subsystem.subsystem_util import subsystem_instance
+from pants_test.subsystem.subsystem_util import global_subsystem_instance
 
 
 @contextmanager
-def _distribution_locator(**options):
-  with subsystem_instance(DistributionLocator, **options) as locator:
-    locator._reset()  # Force a fresh locator.
-    try:
-      yield locator
-    finally:
-      locator._reset()  # And make sure we we clean up the values we cache.
+def _distribution_locator(distribution_locator_options=None):
+  options = {
+    DistributionLocator.options_scope: distribution_locator_options or {}
+  }
+  yield global_subsystem_instance(DistributionLocator, options=options)
 
 
 def _get_two_distributions():
@@ -50,6 +48,9 @@ class DistributionIntegrationTest(PantsRunIntegrationTest):
                                'paths': {
                                  os_name: [one.home],
                                }
+                             },
+                             'jvm-platform': {
+                               'default_platform': 'java{}'.format(one.version.components[1])
                              }
                            },
                            extra_env={
@@ -78,7 +79,7 @@ class DistributionIntegrationTest(PantsRunIntegrationTest):
       target_spec = 'testprojects/src/java/org/pantsbuild/testproject/printversion'
       run = self.run_pants(['run', target_spec])
       self.assert_success(run)
-      self.assertIn('java.home:{}'.format(distribution.home), run.stdout_data)
+      self.assertIn('java.home:{}'.format(os.path.realpath(distribution.home)), run.stdout_data)
 
   def test_jvm_meets_min_and_max_distribution(self):
     with _distribution_locator() as locator:
@@ -92,7 +93,7 @@ class DistributionIntegrationTest(PantsRunIntegrationTest):
                              }
                            })
       self.assert_success(run)
-      self.assertIn('java.home:{}'.format(distribution.home), run.stdout_data)
+      self.assertIn('java.home:{}'.format(os.path.realpath(distribution.home)), run.stdout_data)
 
   def test_impossible_distribution_requirements(self):
     with _distribution_locator() as locator:
@@ -104,13 +105,11 @@ class DistributionIntegrationTest(PantsRunIntegrationTest):
                                                         max_version_arg=None,
                                                         min_version_option=None,
                                                         max_version_option=None):
-    options = {
-      'jvm-distributions': {
-        'minimum_version': min_version_option,
-        'maximum_version': max_version_option,
-      }
+    distribution_locator_options = {
+      'minimum_version': min_version_option,
+      'maximum_version': max_version_option,
     }
-    with _distribution_locator(**options) as locator:
+    with _distribution_locator(distribution_locator_options) as locator:
       with self.assertRaises(Distribution.Error):
         locator.cached(minimum_version=min_version_arg, maximum_version=max_version_arg, jdk=False)
 

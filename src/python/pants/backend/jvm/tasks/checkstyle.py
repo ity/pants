@@ -10,10 +10,10 @@ import os
 from twitter.common.collections import OrderedSet
 
 from pants.backend.jvm.subsystems.shader import Shader
-from pants.backend.jvm.targets.jar_dependency import JarDependency
 from pants.backend.jvm.tasks.nailgun_task import NailgunTask
 from pants.base.exceptions import TaskError
-from pants.option.custom_types import file_option
+from pants.java.jar.jar_dependency import JarDependency
+from pants.option.custom_types import dict_with_files_option, file_option
 from pants.process.xargs import Xargs
 from pants.util.dirutil import safe_open
 
@@ -30,6 +30,9 @@ class Checkstyle(NailgunTask):
 
   _CHECKSTYLE_BOOTSTRAP_KEY = "checkstyle"
 
+  deprecated_options_scope = 'compile.checkstyle'
+  deprecated_options_scope_removal_version = '1.5.0.dev0'
+
   @classmethod
   def register_options(cls, register):
     super(Checkstyle, cls).register_options(register)
@@ -37,7 +40,8 @@ class Checkstyle(NailgunTask):
              help='Skip checkstyle.')
     register('--configuration', advanced=True, type=file_option, fingerprint=True,
              help='Path to the checkstyle configuration file.')
-    register('--properties', advanced=True, type=dict, default={}, fingerprint=True,
+    register('--properties', advanced=True, type=dict_with_files_option, default={},
+             fingerprint=True,
              help='Dictionary of property mappings to use for checkstyle.properties.')
     register('--confs', advanced=True, type=list, default=['default'],
              help='One or more ivy configurations to resolve for this target.')
@@ -45,15 +49,11 @@ class Checkstyle(NailgunTask):
              help='Add the user classpath to the checkstyle classpath')
     cls.register_jvm_tool(register,
                           'checkstyle',
+                          # Note that checkstyle 7.0 does not run on Java 7 runtimes or below.
                           classpath=[
-                            # Pants still officially supports java 6 as a tool; the supported
-                            # development environment for a pants hacker is based on that.  As
-                            # such, we use 6.1.1 here since its the last checkstyle version
-                            # compiled to java 6.  See the release notes here:
-                            # http://checkstyle.sourceforge.net/releasenotes.html
                             JarDependency(org='com.puppycrawl.tools',
                                           name='checkstyle',
-                                          rev='6.1.1'),
+                                          rev='6.19'),
                           ],
                           main=cls._CHECKSTYLE_MAIN,
                           custom_rules=[
@@ -110,8 +110,12 @@ class Checkstyle(NailgunTask):
         union_classpath.update(jar for conf, jar in runtime_classpath
                                if conf in self.get_options().confs)
 
+    configuration_file = self.get_options().configuration
+    if not configuration_file:
+      raise TaskError('No checkstyle configuration file provided.')
+
     args = [
-      '-c', self.get_options().configuration,
+      '-c', configuration_file,
       '-f', 'plain'
     ]
 

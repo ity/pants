@@ -2,18 +2,16 @@
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 python_library(
-  name='distribution',
   sources=[ 'distribution.py' ],
-  resource_targets=[
-    ':resources',
-  ],
   dependencies=[
     '3rdparty/python:six',
+    ':resources',
     'src/python/pants/base:revision',
     'src/python/pants/java:util',
     'src/python/pants/subsystem',
     'src/python/pants/util:contextutil',
     'src/python/pants/util:osutil',
+    'src/python/pants/util:process_handler',
   ],
 )
 

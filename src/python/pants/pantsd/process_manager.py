@@ -8,7 +8,6 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
 import logging
 import os
 import signal
-import subprocess
 import time
 import traceback
 from contextlib import contextmanager
@@ -18,6 +17,7 @@ import psutil
 from pants.base.build_environment import get_buildroot
 from pants.pantsd.subsystem.subprocess import Subprocess
 from pants.util.dirutil import read_file, rm_rf, safe_file_dump, safe_mkdir
+from pants.util.process_handler import subprocess
 
 
 logger = logging.getLogger(__name__)
@@ -49,10 +49,17 @@ class ProcessGroup(object):
                           metadata_base_dir=self._metadata_base_dir)
 
   def iter_processes(self, proc_filter=None):
-    proc_filter = proc_filter or (lambda x: True)
-    with swallow_psutil_exceptions():
-      for proc in (x for x in psutil.process_iter() if proc_filter(x)):
-        yield proc
+    """Yields processes from psutil.process_iter with an optional filter and swallows psutil errors.
+
+    If a psutil exception is raised during execution of the filter, that process will not be
+    yielded but subsequent processes will. On the other hand, if psutil.process_iter raises
+    an exception, no more processes will be yielded.
+    """
+    with swallow_psutil_exceptions():  # process_iter may raise
+      for proc in psutil.process_iter():
+        with swallow_psutil_exceptions():  # proc_filter may raise
+          if (proc_filter is None) or proc_filter(proc):
+            yield proc
 
   def iter_instances(self, *args, **kwargs):
     for item in self.iter_processes(*args, **kwargs):
@@ -269,15 +276,19 @@ class ProcessManager(ProcessMetadataManager):
     return self._socket or self.read_metadata_by_name(self._name, 'socket', self._socket_type)
 
   @classmethod
-  def get_subprocess_output(cls, *args):
+  def get_subprocess_output(cls, command, ignore_stderr=True, **kwargs):
     """Get the output of an executed command.
 
-    :param *args: An iterable representing the command to execute (e.g. ['ls', '-al']).
+    :param command: An iterable representing the command to execute (e.g. ['ls', '-al']).
+    :param ignore_stderr: Whether or not to ignore stderr output vs interleave it with stdout.
     :raises: `ProcessManager.ExecutionError` on `OSError` or `CalledProcessError`.
     :returns: The output of the command.
     """
+    if ignore_stderr is False:
+      kwargs.setdefault('stderr', subprocess.STDOUT)
+
     try:
-      return subprocess.check_output(*args, stderr=subprocess.STDOUT)
+      return subprocess.check_output(command, **kwargs)
     except (OSError, subprocess.CalledProcessError) as e:
       subprocess_output = getattr(e, 'output', '').strip()
       raise cls.ExecutionError(str(e), subprocess_output)
@@ -422,16 +433,16 @@ class ProcessManager(ProcessMetadataManager):
           self.post_fork_child(**post_fork_child_opts or {})
         except Exception:
           logger.critical(traceback.format_exc())
-
-        os._exit(0)
+        finally:
+          os._exit(0)
       else:
         try:
           if write_pid: self.write_pid(second_pid)
           self.post_fork_parent(**post_fork_parent_opts or {})
         except Exception:
           logger.critical(traceback.format_exc())
-
-        os._exit(0)
+        finally:
+          os._exit(0)
     else:
       # This prevents un-reaped, throw-away parent processes from lingering in the process table.
       os.waitpid(pid, 0)
@@ -454,8 +465,8 @@ class ProcessManager(ProcessMetadataManager):
         self.post_fork_child(**post_fork_child_opts or {})
       except Exception:
         logger.critical(traceback.format_exc())
-
-      os._exit(0)
+      finally:
+        os._exit(0)
     else:
       try:
         self.post_fork_parent(**post_fork_parent_opts or {})

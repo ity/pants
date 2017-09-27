@@ -5,7 +5,6 @@ python_library(
   name = 'test_deps',
   dependencies = [
     '3rdparty/python:mock',
-    '3rdparty/python:pytest',
     'tests/python/pants_test:base_test'
   ]
 )
@@ -16,7 +15,8 @@ python_tests(
   coverage = ['pants.pantsd.process_manager'],
   dependencies = [
     ':test_deps',
-    'src/python/pants/pantsd:process_manager'
+    'src/python/pants/pantsd:process_manager',
+    'src/python/pants/util:process_handler',
   ]
 )
 
@@ -66,7 +66,10 @@ python_tests(
   name = 'pantsd_integration',
   sources = ['test_pantsd_integration.py'],
   dependencies = [
-    'tests/python/pants_test:int-test'
+    'src/python/pants/pantsd:process_manager',
+    'tests/python/pants_test:int-test',
+    'tests/python/pants_test/testutils:process_test_util'
   ],
-  tags = {'integration'}
+  tags = {'integration'},
+  timeout = 120
 )

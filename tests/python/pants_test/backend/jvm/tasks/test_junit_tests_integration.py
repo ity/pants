@@ -12,15 +12,14 @@ from pants_test.pants_run_integration_test import PantsRunIntegrationTest
 
 class JunitTestsIntegrationTest(PantsRunIntegrationTest):
 
-  def _assert_junit_output_exists_for_class(self, workdir, classname):
-    self.assertTrue(os.path.exists(
-      os.path.join(workdir, 'test', 'junit', '{}.out.txt'.format(classname))))
-    self.assertTrue(os.path.exists(
-      os.path.join(workdir, 'test', 'junit', '{}.err.txt'.format(classname))))
+  def _assert_output_for_class(self, workdir, classname):
+    out_dir = os.path.join(workdir, 'test', 'junit')
+    self.assertTrue(os.path.exists(os.path.join(out_dir, '{}.out.txt'.format(classname))))
+    self.assertTrue(os.path.exists(os.path.join(out_dir, '{}.err.txt'.format(classname))))
 
   def _assert_junit_output(self, workdir):
-    self._assert_junit_output_exists_for_class(workdir, 'org.pantsbuild.example.hello.greet.GreetingTest')
-    self._assert_junit_output_exists_for_class(workdir, 'org.pantsbuild.example.hello.welcome.WelSpec')
+    self._assert_output_for_class(workdir, 'org.pantsbuild.example.hello.greet.GreetingTest')
+    self._assert_output_for_class(workdir, 'org.pantsbuild.example.hello.welcome.WelSpec')
 
   def test_junit_test_custom_interpreter(self):
     with self.temporary_workdir() as workdir:
@@ -28,8 +27,8 @@ class JunitTestsIntegrationTest(PantsRunIntegrationTest):
           'test',
           'examples/tests/java/org/pantsbuild/example/hello/greet',
           'examples/tests/scala/org/pantsbuild/example/hello/welcome',
-          '--interpreter=CPython>=2.6,<3',
-          '--interpreter=CPython>=3.3'],
+          '--python-setup-interpreter-constraints=CPython>=2.7,<3',
+          '--python-setup-interpreter-constraints=CPython>=3.3'],
           workdir)
       self.assert_success(pants_run)
       self._assert_junit_output(workdir)
@@ -45,42 +44,42 @@ class JunitTestsIntegrationTest(PantsRunIntegrationTest):
   def test_junit_test_with_test_option_with_relpath(self):
     with self.temporary_workdir() as workdir:
       pants_run = self.run_pants_with_workdir([
-          'test',
-          '--test-junit-test=examples/tests/java/org/pantsbuild/example/hello/greet/GreetingTest.java',
+          'test.junit',
+          '--test=examples/tests/java/org/pantsbuild/example/hello/greet/GreetingTest.java',
           'examples/tests/java/org/pantsbuild/example/hello/greet',
           'examples/tests/scala/org/pantsbuild/example/hello/welcome'],
           workdir)
       self.assert_success(pants_run)
-      self._assert_junit_output_exists_for_class(workdir, 'org.pantsbuild.example.hello.greet.GreetingTest')
+      self._assert_output_for_class(workdir, 'org.pantsbuild.example.hello.greet.GreetingTest')
 
   def test_junit_test_with_test_option_with_dot_slash_relpath(self):
     with self.temporary_workdir() as workdir:
       pants_run = self.run_pants_with_workdir([
-          'test',
-          '--test-junit-test=./examples/tests/java/org/pantsbuild/example/hello/greet/GreetingTest.java',
+          'test.junit',
+          '--test=./examples/tests/java/org/pantsbuild/example/hello/greet/GreetingTest.java',
           'examples/tests/java/org/pantsbuild/example/hello/greet',
           'examples/tests/scala/org/pantsbuild/example/hello/welcome'],
           workdir)
       self.assert_success(pants_run)
-      self._assert_junit_output_exists_for_class(workdir, 'org.pantsbuild.example.hello.greet.GreetingTest')
+      self._assert_output_for_class(workdir, 'org.pantsbuild.example.hello.greet.GreetingTest')
 
   def test_junit_test_with_test_option_with_classname(self):
     with self.temporary_workdir() as workdir:
       pants_run = self.run_pants_with_workdir([
-          'test',
-          '--test-junit-test=org.pantsbuild.example.hello.greet.GreetingTest',
+          'test.junit',
+          '--test=org.pantsbuild.example.hello.greet.GreetingTest',
           'examples/tests/java/org/pantsbuild/example/hello/greet',
           'examples/tests/scala/org/pantsbuild/example/hello/welcome'],
           workdir)
       self.assert_success(pants_run)
-      self._assert_junit_output_exists_for_class(workdir, 'org.pantsbuild.example.hello.greet.GreetingTest')
+      self._assert_output_for_class(workdir, 'org.pantsbuild.example.hello.greet.GreetingTest')
 
   def test_junit_test_requiring_cwd_fails_without_option_specified(self):
     pants_run = self.run_pants([
         'test',
         'testprojects/tests/java/org/pantsbuild/testproject/cwdexample',
-        '--interpreter=CPython>=2.6,<3',
-        '--interpreter=CPython>=3.3',
+        '--python-setup-interpreter-constraints=CPython>=2.7,<3',
+        '--python-setup-interpreter-constraints=CPython>=3.3',
         '--jvm-test-junit-options=-Dcwd.test.enabled=true'])
     self.assert_failure(pants_run)
 
@@ -88,9 +87,10 @@ class JunitTestsIntegrationTest(PantsRunIntegrationTest):
     pants_run = self.run_pants([
         'test',
         'testprojects/tests/java/org/pantsbuild/testproject/cwdexample',
-        '--interpreter=CPython>=2.6,<3',
-        '--interpreter=CPython>=3.3',
+        '--python-setup-interpreter-constraints=CPython>=2.7,<3',
+        '--python-setup-interpreter-constraints=CPython>=3.3',
         '--jvm-test-junit-options=-Dcwd.test.enabled=true',
+        '--no-test-junit-chroot',
         '--test-junit-cwd=testprojects/src/java/org/pantsbuild/testproject/cwdexample/subdir'])
     self.assert_success(pants_run)
 
@@ -98,82 +98,60 @@ class JunitTestsIntegrationTest(PantsRunIntegrationTest):
     pants_run = self.run_pants([
         'test',
         'testprojects/tests/java/org/pantsbuild/testproject/cwdexample',
-        '--interpreter=CPython>=2.6,<3',
-        '--interpreter=CPython>=3.3',
+        '--python-setup-interpreter-constraints=CPython>=2.7,<3',
+        '--python-setup-interpreter-constraints=CPython>=3.3',
         '--jvm-test-junit-options=-Dcwd.test.enabled=true'])
     self.assert_failure(pants_run)
 
-  def test_junit_test_output_flag(self):
-    def run_test(output_mode):
-      args = ['test.junit', '--no-test-junit-fail-fast']
-      if output_mode is not None:
-        args.append('--output-mode=' + output_mode)
-      args.append('testprojects/src/java/org/pantsbuild/testproject/junit/suppressoutput:tests')
-      return self.run_pants(args)
-
-    run_with_all_output = run_test('ALL')
-    self.assertIn('Failure output', run_with_all_output.stdout_data)
-    self.assertIn('Success output', run_with_all_output.stdout_data)
-
-    run_with_failure_only_output = run_test('FAILURE_ONLY')
-    self.assertIn('Failure output', run_with_failure_only_output.stdout_data)
-    self.assertNotIn('Success output', run_with_failure_only_output.stdout_data)
-
-    run_with_none_output = run_test('NONE')
-    self.assertNotIn('Failure output', run_with_none_output.stdout_data)
-    self.assertNotIn('Success output', run_with_none_output.stdout_data)
-
-    run_with_default_output = run_test(None)
-    self.assertNotIn('Failure output', run_with_default_output.stdout_data)
-    self.assertNotIn('Success output', run_with_default_output.stdout_data)
-
-  def test_junit_before_class_exception(self):
-    for output_mode in ['ALL', 'FAILURE_ONLY', 'NONE']:
-      run_result = self.run_pants([
-        'test.junit', '--no-test-junit-fail-fast',
-        '--output-mode=' + output_mode,
-        'testprojects/src/java/org/pantsbuild/testproject/junit/beforeclassexception:tests'
-      ])
-      self.assertTrue('Test mechanism' not in run_result.stdout_data,
-                      'Test mechanism exception in case of ' + output_mode + ' output mode.')
+  def test_junit_test_early_exit(self):
+    pants_run = self.run_pants([
+        'test',
+        'testprojects/src/java/org/pantsbuild/testproject/junit/earlyexit:tests'])
+    self.assert_failure(pants_run)
+    self.assertIn('java.lang.UnknownError: Abnormal VM exit - test crashed.', pants_run.stdout_data)
+    self.assertIn('Tests run: 0,  Failures: 1', pants_run.stdout_data)
+    self.assertIn('FATAL: VM exiting unexpectedly.', pants_run.stdout_data)
 
   def test_junit_test_target_cwd(self):
     pants_run = self.run_pants([
-      'test',
-      'testprojects/tests/java/org/pantsbuild/testproject/workdirs/onedir',
-    ])
+        'test',
+        'testprojects/tests/java/org/pantsbuild/testproject/workdirs/onedir'])
     self.assert_success(pants_run)
 
   def test_junit_test_annotation_processor(self):
     pants_run = self.run_pants([
-      'test',
-      'testprojects/tests/java/org/pantsbuild/testproject/annotation',
-    ])
+        'test',
+        'testprojects/tests/java/org/pantsbuild/testproject/annotation'])
     self.assert_success(pants_run)
+
+  def test_junit_test_256_failures(self):
+    pants_run = self.run_pants([
+      'test',
+      'testprojects/tests/java/org/pantsbuild/testproject/fail256'])
+    self.assert_failure(pants_run)
+    self.assertIn('Failures: 256', pants_run.stdout_data)
 
   def test_junit_test_duplicate_resources(self):
     pants_run = self.run_pants([
-      'test',
-      'testprojects/maven_layout/junit_resource_collision',
-    ])
+        'test',
+        'testprojects/maven_layout/junit_resource_collision'])
     self.assert_success(pants_run)
 
   def test_junit_test_target_cwd_overrides_option(self):
     pants_run = self.run_pants([
-      'test',
-      'testprojects/tests/java/org/pantsbuild/testproject/workdirs/onedir',
-      '--test-junit-cwd=testprojects/tests/java/org/pantsbuild/testproject/dummies'
-    ])
+        'test',
+        'testprojects/tests/java/org/pantsbuild/testproject/workdirs/onedir',
+        '--no-test-junit-chroot',
+        '--test-junit-cwd=testprojects/tests/java/org/pantsbuild/testproject/dummies'])
     self.assert_success(pants_run)
 
   def test_junit_test_failure_summary(self):
     with self.temporary_workdir() as workdir:
-      with self.source_clone('testprojects/src/java/org/pantsbuild/testproject/junit/failing') as failing:
-        pants_run = self.run_pants_with_workdir([
-          'test',
-          '--test-junit-failure-summary',
-          os.path.join(failing, 'tests', 'org', 'pantsbuild', 'tmp', 'tests'),
-        ], workdir)
+      failing_tree = 'testprojects/src/java/org/pantsbuild/testproject/junit/failing'
+      with self.source_clone(failing_tree) as failing:
+        failing_addr = os.path.join(failing, 'tests', 'org', 'pantsbuild', 'tmp', 'tests')
+        pants_run = self.run_pants_with_workdir(['test.junit', '--failure-summary', failing_addr],
+                                                workdir)
         self.assert_failure(pants_run)
         expected_groups = []
         expected_groups.append([
@@ -197,12 +175,13 @@ class JunitTestsIntegrationTest(PantsRunIntegrationTest):
 
   def test_junit_test_no_failure_summary(self):
     with self.temporary_workdir() as workdir:
-      with self.source_clone('testprojects/src/java/org/pantsbuild/testproject/junit/failing') as failing:
-        pants_run = self.run_pants_with_workdir([
-          'test',
-          '--no-test-junit-failure-summary',
-          os.path.join(failing, 'tests', 'org', 'pantsbuild', 'tmp', 'tests')
-        ], workdir)
+      failing_tree = 'testprojects/src/java/org/pantsbuild/testproject/junit/failing'
+      with self.source_clone(failing_tree) as failing:
+        failing_addr = os.path.join(failing, 'tests', 'org', 'pantsbuild', 'tmp', 'tests')
+        pants_run = self.run_pants_with_workdir(['test.junit',
+                                                 '--no-failure-summary',
+                                                 failing_addr],
+                                                workdir)
         self.assert_failure(pants_run)
         output = '\n'.join(line.strip() for line in pants_run.stdout_data.split('\n'))
         self.assertNotIn('org/pantsbuild/tmp/tests:three\n'
@@ -211,21 +190,21 @@ class JunitTestsIntegrationTest(PantsRunIntegrationTest):
 
   def test_junit_test_successes_and_failures(self):
     with self.temporary_workdir() as workdir:
-      with self.source_clone('testprojects/src/java/org/pantsbuild/testproject/junit/mixed') as mixed:
-        pants_run = self.run_pants_with_workdir([
-          'test',
-          '--test-junit-failure-summary',
-          '--no-test-junit-fail-fast',
-          os.path.join(mixed, 'tests', 'org', 'pantsbuild', 'tmp', 'tests'),
-        ], workdir)
+      mixed_tree = 'testprojects/src/java/org/pantsbuild/testproject/junit/mixed'
+      with self.source_clone(mixed_tree) as mixed:
+        mixed_addr = os.path.join(mixed, 'tests', 'org', 'pantsbuild', 'tmp', 'tests')
+        pants_run = self.run_pants_with_workdir(['test.junit',
+                                                 '--failure-summary',
+                                                 '--no-fail-fast',
+                                                 mixed_addr],
+                                                workdir)
         group = [
-          'org/pantsbuild/tmp/tests:tests',
-          'org.pantsbuild.tmp.tests.AllTests#test1Failure',
-          'org.pantsbuild.tmp.tests.AllTests#test3Failure',
-          'org.pantsbuild.tmp.tests.AllTests#test4Error',
-          'org.pantsbuild.tmp.tests.InnerClassTests$InnerClassFailureTest#testInnerFailure',
-          'org.pantsbuild.tmp.tests.InnerClassTests$InnerInnerTest$InnerFailureTest#testFailure'
-        ]
+            'org/pantsbuild/tmp/tests:tests',
+            'org.pantsbuild.tmp.tests.AllTests#test1Failure',
+            'org.pantsbuild.tmp.tests.AllTests#test3Failure',
+            'org.pantsbuild.tmp.tests.AllTests#test4Error',
+            'org.pantsbuild.tmp.tests.InnerClassTests$InnerClassFailureTest#testInnerFailure',
+            'org.pantsbuild.tmp.tests.InnerClassTests$InnerInnerTest$InnerFailureTest#testFailure']
         output = '\n'.join(line.strip() for line in pants_run.stdout_data.split('\n'))
         self.assertIn('\n'.join(group), output,
                       '{group}\n not found in\n\n{output}.'.format(group='\n'.join(group),

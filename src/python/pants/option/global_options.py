@@ -7,10 +7,14 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
 
 import logging
 import os
+import sys
+
+import pkg_resources
 
 from pants.base.build_environment import (get_buildroot, get_default_pants_config_file,
                                           get_pants_cachedir, get_pants_configdir, pants_version)
 from pants.option.arg_splitter import GLOBAL_SCOPE
+from pants.option.custom_types import dir_option
 from pants.option.optionable import Optionable
 from pants.option.scope import ScopeInfo
 
@@ -45,7 +49,7 @@ class GlobalOptionsRegistrar(Optionable):
              help='Squelches most console output.')
     # Not really needed in bootstrap options, but putting it here means it displays right
     # after -l and -q in help output, which is conveniently contextual.
-    register('--colors', type=bool, default=True, recursive=True,
+    register('--colors', type=bool, default=sys.stdout.isatty(), recursive=True,
              help='Set whether log messages are displayed in color.')
 
     # Pants code uses this only to verify that we are of the requested version. However
@@ -61,7 +65,20 @@ class GlobalOptionsRegistrar(Optionable):
              help='Cache resolved plugin requirements here.')
 
     register('--backend-packages', advanced=True, type=list,
-             help='Load backends from these packages that are already on the path.')
+             default=['pants.backend.graph_info',
+                      'pants.backend.python',
+                      'pants.backend.jvm',
+                      'pants.backend.codegen.antlr.java',
+                      'pants.backend.codegen.antlr.python',
+                      'pants.backend.codegen.jaxb',
+                      'pants.backend.codegen.protobuf.java',
+                      'pants.backend.codegen.ragel.java',
+                      'pants.backend.codegen.thrift.java',
+                      'pants.backend.codegen.thrift.python',
+                      'pants.backend.codegen.wire.java',
+                      'pants.backend.project_info'],
+             help='Load backends from these packages that are already on the path. '
+                  'Add contrib and custom backends to this list.')
 
     register('--pants-bootstrapdir', advanced=True, metavar='<dir>', default=get_pants_cachedir(),
              help='Use this dir for global cache.')
@@ -82,12 +99,11 @@ class GlobalOptionsRegistrar(Optionable):
                   'subprocesses that outlive the workdir data (e.g. `./pants server`).')
     register('--pants-config-files', advanced=True, type=list,
              default=[get_default_pants_config_file()], help='Paths to Pants config files.')
-    # TODO: Deprecate --config-override in favor of --pants-config-files.
-    # But only once we're able to both append and override list-valued options, as there are
-    # use-cases for both here.
     # TODO: Deprecate the --pantsrc/--pantsrc-files options?  This would require being able
     # to set extra config file locations in an initial bootstrap config file.
     register('--config-override', advanced=True, type=list, metavar='<path>',
+             removal_version='1.6.0.dev0',
+             removal_hint='Use --pants-config-files=<second config file path> instead.',
              help='A second config file, to override pants.ini.')
     register('--pantsrc', advanced=True, type=bool, default=True,
              help='Use pantsrc files.')
@@ -113,9 +129,33 @@ class GlobalOptionsRegistrar(Optionable):
     register('--enable-pantsd', advanced=True, type=bool, default=False,
              help='Enables use of the pants daemon (and implicitly, the v2 engine). (Beta)')
 
-    # This facilitates use of the v2 engine for BuildGraph construction, sans daemon.
-    register('--enable-v2-engine', advanced=True, type=bool, default=False,
-             help='Enables use of the v2 engine. (Beta)')
+    # This facilitates use of the v2 engine, sans daemon.
+    # TODO: Add removal_version='1.5.0.dev0' before 1.4 lands.
+    register('--enable-v2-engine', advanced=True, type=bool, default=True,
+             help='Enables use of the v2 engine.')
+
+    # These facilitate configuring the native engine.
+    register('--native-engine-version', advanced=True,
+             default=pkg_resources.resource_string('pants.engine', 'native_engine_version').strip(),
+             help='Native engine version.')
+    register('--native-engine-supportdir', advanced=True, default='bin/native-engine',
+             help='Find native engine binaries under this dir. Used as part of the path to '
+                  'lookup the binary with --binary-util-baseurls and --pants-bootstrapdir.')
+    register('--native-engine-visualize-to', advanced=True, default=None, type=dir_option,
+             help='A directory to write execution and rule graphs to as `dot` files. The contents '
+                  'of the directory will be overwritten if any filenames collide.')
+
+    # BinaryUtil options.
+    register('--binaries-baseurls', type=list, advanced=True,
+             default=['https://binaries.pantsbuild.org'],
+             help='List of URLs from which binary tools are downloaded. URLs are searched in '
+                  'order until the requested path is found.')
+    register('--binaries-fetch-timeout-secs', type=int, default=30, advanced=True,
+             help='Timeout in seconds for URL reads when fetching binary tools from the '
+                  'repos specified by --baseurls.')
+    register('--binaries-path-by-id', type=dict, advanced=True,
+             help=('Maps output of uname for a machine to a binary search path. e.g. '
+             '{("darwin", "15"): ["mac", "10.11"]), ("linux", "arm32"): ["linux", "arm32"]}'))
 
   @classmethod
   def register_options(cls, register):
@@ -141,25 +181,28 @@ class GlobalOptionsRegistrar(Optionable):
              help='Kill nailguns before exiting')
     register('-i', '--interpreter', advanced=True, default=[], type=list,
              metavar='<requirement>',
+             removal_version='1.5.0.dev0',
+             removal_hint='Use --interpreter-constraints in scope python-setup instead.',
              help="Constrain what Python interpreters to use.  Uses Requirement format from "
-                  "pkg_resources, e.g. 'CPython>=2.6,<3' or 'PyPy'. By default, no constraints "
+                  "pkg_resources, e.g. 'CPython>=2.7,<3' or 'PyPy'. By default, no constraints "
                   "are used.  Multiple constraints may be added.  They will be ORed together.")
     register('--exclude-target-regexp', advanced=True, type=list, default=[],
              metavar='<regexp>',
-             help='Exclude targets that match these regexes.',
-             recursive=True)  # TODO: Does this need to be recursive? What does that even mean?
+             help='Exclude target roots that match these regexes.')
     # Relative pants_distdir to buildroot. Requires --pants-distdir to be bootstrapped above first.
     # e.g. '/dist/'
     rel_distdir = '/{}/'.format(os.path.relpath(register.bootstrap.pants_distdir, get_buildroot()))
-    register('--ignore-patterns', advanced=True, type=list, fromfile=True,
-             default=['.*', rel_distdir, 'bower_components', 'node_modules', '*.egg-info'],
-             help='Glob patterns for ignoring files when reading BUILD files. '
-                  'Use to ignore unneeded directories or BUILD files. '
-                  'Entries use the gitignore pattern syntax (https://git-scm.com/docs/gitignore).')
-    register('--pants-ignore', advanced=True, type=list, fromfile=True, default=['.*', rel_distdir],
-             help='Ignore files that match the specified patterns. '
-                  'Entries use the gitignore pattern syntax (https://git-scm.com/docs/gitignore). '
-                  'This option is currently experimental.')
+    register('--build-ignore', advanced=True, type=list, fromfile=True,
+             default=['.*/', rel_distdir, 'bower_components/', 'node_modules/', '*.egg-info/'],
+             help='Paths to ignore when identifying BUILD files. '
+                  'This does not affect any other filesystem operations. '
+                  'Patterns use the gitignore pattern syntax (https://git-scm.com/docs/gitignore).')
+    register('--pants-ignore', advanced=True, type=list, fromfile=True, default=['.*/', rel_distdir],
+             help='Paths to ignore for all filesystem operations performed by pants '
+                  '(e.g. BUILD file scanning, glob matching, etc). '
+                  'Patterns use the gitignore syntax (https://git-scm.com/docs/gitignore). '
+                  'This currently only affects the v2 engine. '
+                  'To experiment with v2 engine, try --enable-v2-engine option.')
     register('--fail-fast', advanced=True, type=bool, recursive=True,
              help='Exit as quickly as possible on error, rather than attempting to continue '
                   'to process the non-erroneous subset of the input.')
@@ -174,8 +217,12 @@ class GlobalOptionsRegistrar(Optionable):
     register('--print-exception-stacktrace', advanced=True, type=bool,
              help='Print to console the full exception stack trace if encountered.')
     register('--build-file-rev', advanced=True,
+             removal_hint='Lightly used feature, scheduled for removal.', removal_version='1.5.0.dev0',
              help='Read BUILD files from this scm rev instead of from the working tree.  This is '
              'useful for implementing pants-aware sparse checkouts.')
     register('--lock', advanced=True, type=bool, default=True,
              help='Use a global lock to exclude other versions of pants from running during '
                   'critical operations.')
+    register('--subproject-roots', type=list, advanced=True, fromfile=True, default=[],
+             help='Paths that correspond with build roots for any subproject that this '
+                  'project depends on.')

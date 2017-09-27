@@ -7,11 +7,10 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
 
 import logging
 import os
-import subprocess
 
 from pants.base.exceptions import TaskError
 from pants.base.workunit import WorkUnitLabel
-from pants.util.dirutil import safe_mkdir
+from pants.util.process_handler import subprocess
 
 from pants.contrib.android.targets.android_resources import AndroidResources
 from pants.contrib.android.tasks.aapt_task import AaptTask
@@ -67,7 +66,6 @@ class AaptBuilder(AaptTask):
     return args
 
   def execute(self):
-    safe_mkdir(self.workdir)
     binaries = self.context.targets(self.is_android_binary)
     with self.invalidated(binaries) as invalidation_check:
       invalid_targets = []

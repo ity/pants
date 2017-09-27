@@ -1,7 +1,7 @@
 # Copyright 2016 Pants project contributors (see CONTRIBUTORS.md).
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
-junit_tests(name='parallel',
+junit_tests(
   sources=globs('ParallelTest*.java'),
   dependencies=[
     '3rdparty:junit',
@@ -33,7 +33,7 @@ junit_tests(name='annotated-parallel',
 
 # Even though these tests are run with 'parallel_classes' concurrency, they are annotated
 # with @TestSerial, so they should run serially, even when even when
-# --test-junit-default-concurrency={PARALLEL_CLASSES, PARALLEL_METHODS, PARALLEL_BOTH} is set
+# --test-junit-default-concurrency={PARALLEL_CLASSES, PARALLEL_METHODS, PARALLEL_CLASSES_AND_METHODS} is set
 # See: https://github.com/pantsbuild/pants/issues/3209
 junit_tests(name='annotated-serial',
   sources=globs('AnnotatedSerialTest*.java'),

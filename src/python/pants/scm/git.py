@@ -8,13 +8,13 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
 import logging
 import os
 import StringIO
-import subprocess
 import traceback
 from contextlib import contextmanager
 
 from pants.scm.scm import Scm
 from pants.util.contextutil import pushd
 from pants.util.memo import memoized_method
+from pants.util.process_handler import subprocess
 from pants.util.strutil import ensure_binary
 
 
@@ -57,6 +57,19 @@ class Git(Scm):
     except Scm.ScmException:
       return None
     return cls._cleanse(out)
+
+  @classmethod
+  def clone(cls, repo_url, dest, binary='git'):
+    """Clone the repo at repo_url into dest.
+
+    :param string binary: The path to the git binary to use, 'git' by default.
+    :returns: an instance of this class representing the cloned repo.
+    :rtype: Git
+    """
+    cmd = [binary, 'clone', repo_url, dest]
+    process, out = cls._invoke(cmd)
+    cls._check_result(cmd, process.returncode)
+    return cls(binary=binary, worktree=dest)
 
   @classmethod
   def _invoke(cls, cmd):
@@ -237,6 +250,9 @@ class Git(Scm):
   def push(self, *refs):
     remote, merge = self._get_upstream()
     self._check_call(['push', remote, merge] + list(refs), raise_type=Scm.RemoteException)
+
+  def set_state(self, rev):
+    self._check_call(['checkout', rev])
 
   def _get_upstream(self):
     """Return the remote and remote merge branch for the current branch"""

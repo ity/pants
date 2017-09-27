@@ -3,12 +3,12 @@
 #
 #  Example of annotation_processor() target
 
-annotation_processor(name='processor',
+annotation_processor(
   sources=['ExampleProcessor.java'],
   processors=['org.pantsbuild.example.annotation.processor.ExampleProcessor'],
   dependencies=[
     'examples/src/java/org/pantsbuild/example/annotation/example',
     '3rdparty:guava',
   ],
+  scope='forced',
 )
-

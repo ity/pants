@@ -3,13 +3,11 @@
 
 # Tests functionality of wire generating java code.
 
-junit_tests(name='usewire',
+junit_tests(
   sources=['UseWireTest.java',],
   dependencies=[
     '3rdparty:junit',
+    '3rdparty:wire-runtime',
     'examples/src/wire/org/pantsbuild/example/temperature',
   ],
-  # TODO: The 'wire' library is not actually defined in a BUILD file: it comes in
-  # via the tool classpath of the sythetic target.
-  strict_deps=False,
 )

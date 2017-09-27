@@ -15,10 +15,11 @@ from pants.base.generator import Generator, TemplateData
 from pants.base.workunit import WorkUnitLabel
 from pants.build_graph.address import Address
 from pants.build_graph.address_lookup_error import AddressLookupError
+from pants.source.source_root import SourceRootCategories
 from pants.util.contextutil import temporary_dir
 from pants.util.dirutil import safe_mkdir, safe_open
 
-from pants.contrib.go.subsystems.fetchers import Fetchers
+from pants.contrib.go.subsystems.fetcher_factory import FetcherFactory
 from pants.contrib.go.targets.go_binary import GoBinary
 from pants.contrib.go.targets.go_library import GoLibrary
 from pants.contrib.go.targets.go_local_source import GoLocalSource
@@ -41,12 +42,12 @@ class GoTargetGenerator(object):
   class NewRemoteEncounteredButRemotesNotAllowedError(GenerationError):
     """Indicates a new remote library dependency was found but --remote was not enabled."""
 
-  def __init__(self, import_oracle, build_graph, local_root, fetchers,
+  def __init__(self, import_oracle, build_graph, local_root, fetcher_factory,
                generate_remotes=False, remote_root=None):
     self._import_oracle = import_oracle
     self._build_graph = build_graph
     self._local_source_root = local_root
-    self._fetchers = fetchers
+    self._fetcher_factory = fetcher_factory
     self._generate_remotes = generate_remotes
     self._remote_source_root = remote_root
 
@@ -75,9 +76,8 @@ class GoTargetGenerator(object):
     for import_path in import_listing.all_imports:
       if not self._import_oracle.is_go_internal_import(import_path):
         if import_path not in visited:
-          fetcher = self._fetchers.maybe_get_fetcher(import_path)
-          if fetcher:
-            remote_root = fetcher.root(import_path)
+          if self._import_oracle.is_remote_import(import_path):
+            remote_root = self._fetcher_factory.get_fetcher(import_path).root()
             remote_pkg_path = GoRemoteLibrary.remote_package_path(remote_root, import_path)
             name = remote_pkg_path or os.path.basename(import_path)
             address = Address(os.path.join(self._remote_source_root, remote_root), name)
@@ -120,8 +120,8 @@ class GoBuildgen(GoTask):
   """Automatically generates Go BUILD files."""
 
   @classmethod
-  def global_subsystems(cls):
-    return super(GoBuildgen, cls).global_subsystems() + (Fetchers,)
+  def subsystem_dependencies(cls):
+    return super(GoBuildgen, cls).subsystem_dependencies() + (FetcherFactory,)
 
   @classmethod
   def _default_template(cls):
@@ -249,7 +249,7 @@ class GoBuildgen(GoTask):
     def gather_go_buildfiles(rel_path):
       address_mapper = self.context.address_mapper
       for build_file in address_mapper.scan_build_files(base_path=rel_path):
-        existing_go_buildfiles.add(build_file.relpath)
+        existing_go_buildfiles.add(build_file)
 
     gather_go_buildfiles(generation_result.local_root)
     if remote and generation_result.remote_root != generation_result.local_root:
@@ -275,9 +275,9 @@ class GoBuildgen(GoTask):
       for existing_go_buildfile in existing_go_buildfiles:
         spec_path = os.path.dirname(existing_go_buildfile)
         for address in self.context.address_mapper.addresses_in_spec_path(spec_path):
-          target = self.context.address_mapper.resolve(address)
+          target = self.context.build_graph.resolve_address(address)
           if isinstance(target, GoLocalSource):
-            os.unlink(existing_go_buildfile)
+            os.unlink(os.path.join(get_buildroot(), existing_go_buildfile))
             deleted.append(existing_go_buildfile)
       if deleted:
         self.context.log.info('Deleted the following obsolete BUILD files:\n\t{}'
@@ -332,9 +332,19 @@ class GoBuildgen(GoTask):
     # The GOPATH's 1st element is read-write, the rest are read-only; ie: their sources build to
     # the 1st element's pkg/ and bin/ dirs.
 
+    go_roots_by_category = defaultdict(list)
     # TODO: Add "find source roots for lang" functionality to SourceRoots and use that instead.
-    all_roots = list(self.context.source_roots.all_roots())
-    local_roots = [sr.path for sr in all_roots if 'go' in sr.langs]
+    for sr in self.context.source_roots.all_roots():
+      if 'go' in sr.langs:
+        go_roots_by_category[sr.category].append(sr.path)
+
+    if go_roots_by_category[SourceRootCategories.TEST]:
+      raise self.InvalidLocalRootsError('Go buildgen does not support test source roots.')
+    if go_roots_by_category[SourceRootCategories.UNKNOWN]:
+      raise self.InvalidLocalRootsError('Go buildgen does not support source roots of '
+                                        'unknown category.')
+
+    local_roots = go_roots_by_category[SourceRootCategories.SOURCE]
     if not local_roots:
       raise self.NoLocalRootsError('Can only BUILD gen if a Go local sources source root is '
                                    'defined.')
@@ -358,7 +368,7 @@ class GoBuildgen(GoTask):
       if not local_go_targets:
         return None
 
-    remote_roots = [sr.path for sr in all_roots if 'go_remote' in sr.langs]
+    remote_roots = go_roots_by_category[SourceRootCategories.THIRDPARTY]
     if len(remote_roots) > 1:
       raise self.InvalidRemoteRootsError('Can only BUILD gen for a single Go remote library source '
                                          'root, found:\n\t{}'
@@ -368,7 +378,7 @@ class GoBuildgen(GoTask):
     generator = GoTargetGenerator(self.import_oracle,
                                   self.context.build_graph,
                                   local_root,
-                                  Fetchers.global_instance(),
+                                  self.get_fetcher_factory(),
                                   generate_remotes=self.get_options().remote,
                                   remote_root=remote_root)
     with self.context.new_workunit('go.buildgen', labels=[WorkUnitLabel.MULTITOOL]):
@@ -379,6 +389,9 @@ class GoBuildgen(GoTask):
                                      remote_root=remote_root)
       except generator.GenerationError as e:
         raise self.GenerationError(e)
+
+  def get_fetcher_factory(self):
+    return FetcherFactory.global_instance()
 
   def generate_build_files(self, targets):
     goal_name = self.options_scope

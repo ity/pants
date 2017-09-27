@@ -6,7 +6,6 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
                         unicode_literals, with_statement)
 
 import os
-import subprocess
 
 from pants.base.build_environment import get_buildroot
 from pants.base.exceptions import TaskError
@@ -14,14 +13,15 @@ from pants.base.workunit import WorkUnitLabel
 from pants.binaries.binary_util import BinaryUtil
 from pants.task.console_task import ConsoleTask
 from pants.util.contextutil import temporary_dir
+from pants.util.process_handler import subprocess
 
 
 class CountLinesOfCode(ConsoleTask):
   """Print counts of lines of code."""
 
   @classmethod
-  def global_subsystems(cls):
-    return super(CountLinesOfCode, cls).global_subsystems() + (BinaryUtil.Factory,)
+  def subsystem_dependencies(cls):
+    return super(CountLinesOfCode, cls).subsystem_dependencies() + (BinaryUtil.Factory,)
 
   @classmethod
   def register_options(cls, register):

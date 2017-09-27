@@ -24,5 +24,17 @@ python_library(
   dependencies = [
     'src/python/pants/base:revision',
     'src/python/pants/scm:git',
+    'src/python/pants/util:contextutil',
+    'src/python/pants/util:process_handler',
+  ],
+)
+
+python_library(
+  name = 'process_test_util',
+  sources = [
+    'process_test_util.py',
+  ],
+  dependencies = [
+    '3rdparty/python:psutil',
   ],
 )

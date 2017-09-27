@@ -15,13 +15,13 @@ import six
 from six import binary_type, string_types
 from twitter.common.collections import maybe_list
 
+from pants.backend.jvm.argfile import safe_args
 from pants.backend.jvm.subsystems.jar_tool import JarTool
 from pants.backend.jvm.targets.java_agent import JavaAgent
 from pants.backend.jvm.targets.jvm_binary import Duplicate, JarRules, JvmBinary, Skip
 from pants.backend.jvm.tasks.classpath_util import ClasspathUtil
 from pants.backend.jvm.tasks.nailgun_task import NailgunTask
 from pants.base.exceptions import TaskError
-from pants.binaries.binary_util import safe_args
 from pants.java.jar.manifest import Manifest
 from pants.java.util import relativize_classpath
 from pants.util.contextutil import temporary_dir
@@ -154,7 +154,7 @@ class Jar(object):
 
     If called multiple times, new entry will be appended to the existing classpath.
 
-    :param list classpath: a list of paths
+    :param iterable classpath: a list of paths
     """
     self._classpath = self._classpath + maybe_list(classpath)
 
@@ -279,8 +279,8 @@ class JarTask(NailgunTask):
   """
 
   @classmethod
-  def global_subsystems(cls):
-    return super(JarTask, cls).global_subsystems() + (JarTool,)
+  def subsystem_dependencies(cls):
+    return super(JarTask, cls).subsystem_dependencies() + (JarTool,)
 
   @classmethod
   def prepare(cls, options, round_manager):

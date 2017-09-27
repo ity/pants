@@ -3,9 +3,12 @@
 
 junit_tests(
   name='jar',
-  sources=globs('*.java'),
   dependencies=[
+    '3rdparty:guava',
+    '3rdparty:jsr305',
     '3rdparty:junit',
     'src/java/org/pantsbuild/tools/runner:runner-library',
   ],
+  # This test needs to invoke ./pants at the buildroot.
+  cwd=get_buildroot()
 )

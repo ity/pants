@@ -9,7 +9,6 @@ import os
 from collections import defaultdict
 
 from pants.build_graph.build_file_address_mapper import BuildFileAddressMapper
-from pants.source.payload_fields import DeferredSourcesField
 
 
 class SourceMapper(object):
@@ -40,7 +39,6 @@ class SpecSourceMapper(SourceMapper):
 
   def target_addresses_for_source(self, source):
     result = []
-
     path = source
 
     # a top-level source has empty dirname, so do/while instead of straight while loop.
@@ -59,18 +57,19 @@ class SpecSourceMapper(SourceMapper):
     for address in self._address_mapper.addresses_in_spec_path(spec_path):
       self._build_graph.inject_address_closure(address)
       target = self._build_graph.get_target(address)
-      sources = target.payload.get_field('sources')
-      if sources and not isinstance(sources, DeferredSourcesField) and sources.matches(source):
+      sources_field = target.payload.get_field('sources')
+      if sources_field and sources_field.matches(source):
         yield address
-      if address.build_file.relpath == source:
+      elif self._address_mapper.is_declaring_file(address, source):
         yield address
-      if target.has_resources:
+      elif target.has_resources:
         for resource in target.resources:
           """
           :type resource: pants.build_graph.resources.Resources
           """
           if resource.payload.sources.matches(source):
             yield address
+            break
 
 
 class LazySourceMapper(SourceMapper):
@@ -153,12 +152,12 @@ class LazySourceMapper(SourceMapper):
       if target.has_resources:
         for resource in target.resources:
           for item in resource.sources_relative_to_buildroot():
-            self._source_to_address[item].add(target.address)
+            self._source_to_address[item].add(address)
 
       for target_source in target.sources_relative_to_buildroot():
-        self._source_to_address[target_source].add(target.address)
+        self._source_to_address[target_source].add(address)
       if not target.is_synthetic:
-        self._source_to_address[target.address.build_file.relpath].add(target.address)
+        self._source_to_address[address.rel_path].add(address)
 
   def target_addresses_for_source(self, source):
     """Attempt to find targets which own a source by searching up directory structure to buildroot.

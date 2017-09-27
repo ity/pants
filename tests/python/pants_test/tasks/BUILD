@@ -7,8 +7,9 @@ python_library(
   dependencies = [
     'src/python/pants/goal:context',
     'src/python/pants/ivy',
-    'src/python/pants/util:contextutil',
     'src/python/pants/task',
+    'src/python/pants/util:contextutil',
+    'src/python/pants/util:process_handler',
     'tests/python/pants_test:base_test',
   ]
 )
@@ -26,8 +27,11 @@ python_tests(
   name = 'changed_target_integration',
   sources = ['test_changed_target_integration.py'],
   dependencies = [
+    'src/python/pants/base:build_environment',
     'src/python/pants/util:contextutil',
+    'src/python/pants/util:dirutil',
     'tests/python/pants_test:int-test',
+    'tests/python/pants_test/testutils:git_util',
   ],
   tags = {'integration'},
 )
@@ -54,8 +58,9 @@ python_tests(
   name = 'clean_all_integration',
   sources = ['test_clean_all_integration.py'],
   dependencies = [
-    'tests/python/pants_test:int-test',
     'src/python/pants/util:contextutil',
+    'src/python/pants/util:process_handler',
+    'tests/python/pants_test:int-test',
   ],
   tags = {'integration'},
 )

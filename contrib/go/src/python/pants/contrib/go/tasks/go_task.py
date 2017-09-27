@@ -6,12 +6,13 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
                         unicode_literals, with_statement)
 
 import json
-import subprocess
+import re
 from collections import namedtuple
 
 from pants.base.workunit import WorkUnit, WorkUnitLabel
 from pants.task.task import Task
 from pants.util.memo import memoized_method, memoized_property
+from pants.util.process_handler import subprocess
 from twitter.common.collections.orderedset import OrderedSet
 
 from pants.contrib.go.subsystems.go_distribution import GoDistribution
@@ -25,8 +26,8 @@ from pants.contrib.go.targets.go_target import GoTarget
 class GoTask(Task):
 
   @classmethod
-  def global_subsystems(cls):
-    return super(GoTask, cls).global_subsystems() + (GoDistribution.Factory,)
+  def subsystem_dependencies(cls):
+    return super(GoTask, cls).subsystem_dependencies() + (GoDistribution.Factory,)
 
   @staticmethod
   def is_binary(target):
@@ -94,6 +95,15 @@ class ImportOracle(object):
     out = self._go_dist.create_go_cmd('list', args=['std']).check_output()
     return frozenset(out.strip().split())
 
+  # This simple regex mirrors the behavior of the relevant go code in practice (see
+  # repoRootForImportDynamic and surrounding code in
+  # https://github.com/golang/go/blob/7bc40ffb05d8813bf9b41a331b45d37216f9e747/src/cmd/go/vcs.go).
+  _remote_import_re = re.compile('[^.]+(?:\.[^.]+)+\/')
+
+  def is_remote_import(self, import_path):
+    """Whether the specified import_path denotes a remote import."""
+    return self._remote_import_re.match(import_path) is not None
+
   def is_go_internal_import(self, import_path):
     """Return `True` if the given import path will be satisfied directly by the Go distribution.
 
@@ -133,7 +143,8 @@ class ImportOracle(object):
              of `pkg`.
     """
     go_cmd = self._go_dist.create_go_cmd('list', args=['-json', pkg], gopath=gopath)
-    with self._workunit_factory(pkg, cmd=str(go_cmd), labels=[WorkUnitLabel.TOOL]) as workunit:
+    with self._workunit_factory('list {}'.format(pkg), cmd=str(go_cmd),
+                                labels=[WorkUnitLabel.TOOL]) as workunit:
       # TODO(John Sirois): It would be nice to be able to tee the stdout to the workunit to we have
       # a capture of the json available for inspection in the server console.
       process = go_cmd.spawn(stdout=subprocess.PIPE, stderr=workunit.output('stderr'))

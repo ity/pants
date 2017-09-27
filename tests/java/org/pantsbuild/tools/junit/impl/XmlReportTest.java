@@ -3,6 +3,7 @@
 
 package org.pantsbuild.tools.junit.impl;
 
+import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import java.io.File;
 import java.io.IOException;
@@ -18,11 +19,14 @@ import org.pantsbuild.tools.junit.lib.ConsoleRunnerTestBase;
 import org.pantsbuild.tools.junit.lib.FailingTestRunner;
 import org.pantsbuild.tools.junit.lib.XmlReportAllIgnoredTest;
 import org.pantsbuild.tools.junit.lib.XmlReportAllPassingTest;
+import org.pantsbuild.tools.junit.lib.XmlReportAssumeSetupTest;
+import org.pantsbuild.tools.junit.lib.XmlReportAssumeTest;
 import org.pantsbuild.tools.junit.lib.XmlReportFailInSetupTest;
 import org.pantsbuild.tools.junit.lib.XmlReportFailingParameterizedTest;
 import org.pantsbuild.tools.junit.lib.XmlReportFailingTestRunnerTest;
 import org.pantsbuild.tools.junit.lib.XmlReportFirstTestIngoredTest;
 import org.pantsbuild.tools.junit.lib.XmlReportIgnoredTestSuiteTest;
+import org.pantsbuild.tools.junit.lib.XmlReportMockitoStubbingTest;
 import org.pantsbuild.tools.junit.lib.XmlReportTestSuite;
 
 import static org.hamcrest.CoreMatchers.containsString;
@@ -120,6 +124,35 @@ public class XmlReportTest extends ConsoleRunnerTestBase {
   }
 
   @Test
+  public void testXmlReportMockitoUnnecessaryStubbing() throws Exception {
+    String testClassName = XmlReportMockitoStubbingTest.class.getCanonicalName();
+    AntJunitXmlReportListener.TestSuite testSuite = runTestAndParseXml(testClassName, true);
+
+    assertNotNull(testSuite);
+    assertEquals(1, testSuite.getTests());
+    assertEquals(0, testSuite.getFailures());
+    assertEquals(1, testSuite.getErrors());
+    assertEquals(0, testSuite.getSkipped());
+    assertTrue(Float.parseFloat(testSuite.getTime()) > 0);
+    assertEquals(testClassName, testSuite.getName());
+
+    List<AntJunitXmlReportListener.TestCase> testCases = testSuite.getTestCases();
+    assertEquals(2, testCases.size());
+    sortTestCasesByName(testCases);
+
+    AntJunitXmlReportListener.TestCase errorTestCase = testCases.get(1);
+    assertEquals(testClassName, errorTestCase.getClassname());
+    assertEquals("unnecessary Mockito stubbings", errorTestCase.getName());
+    assertEquals("0", errorTestCase.getTime());
+    assertNull(errorTestCase.getFailure());
+    assertThat(errorTestCase.getError().getMessage(),
+        containsString("Unnecessary stubbings detected in test class:"));
+    assertEquals("org.mockito.exceptions.misusing.UnnecessaryStubbingException",
+        errorTestCase.getError().getType());
+    assertThat(errorTestCase.getError().getStacktrace(), containsString(testClassName));
+  }
+
+  @Test
   public void testXmlReportFirstTestIgnored() throws Exception {
     String testClassName = XmlReportFirstTestIngoredTest.class.getCanonicalName();
     AntJunitXmlReportListener.TestSuite testSuite = runTestAndParseXml(testClassName, false);
@@ -129,6 +162,34 @@ public class XmlReportTest extends ConsoleRunnerTestBase {
     assertEquals(0, testSuite.getFailures());
     assertEquals(0, testSuite.getErrors());
     assertEquals(1, testSuite.getSkipped());
+    assertTrue(Float.parseFloat(testSuite.getTime()) > 0);
+    assertEquals(testClassName, testSuite.getName());
+  }
+
+  @Test
+  public void testXmlReportAssume() throws Exception {
+    String testClassName = XmlReportAssumeTest.class.getCanonicalName();
+    AntJunitXmlReportListener.TestSuite testSuite = runTestAndParseXml(testClassName, true);
+
+    assertNotNull(testSuite);
+    assertEquals(3, testSuite.getTests());
+    assertEquals(1, testSuite.getFailures());
+    assertEquals(0, testSuite.getErrors());
+    assertEquals(1, testSuite.getSkipped());
+    assertTrue(Float.parseFloat(testSuite.getTime()) > 0);
+    assertEquals(testClassName, testSuite.getName());
+  }
+
+  @Test
+  public void testXmlReportAssumeInSetup() throws Exception {
+    String testClassName = XmlReportAssumeSetupTest.class.getCanonicalName();
+    AntJunitXmlReportListener.TestSuite testSuite = runTestAndParseXml(testClassName, false);
+
+    assertNotNull(testSuite);
+    assertEquals(2, testSuite.getTests());
+    assertEquals(0, testSuite.getFailures());
+    assertEquals(0, testSuite.getErrors());
+    assertEquals(2, testSuite.getSkipped());
     assertTrue(Float.parseFloat(testSuite.getTime()) > 0);
     assertEquals(testClassName, testSuite.getName());
   }
@@ -150,7 +211,8 @@ public class XmlReportTest extends ConsoleRunnerTestBase {
   @Test
   public void testXmlReportXmlElements() throws Exception {
     String testClassName = XmlReportAllPassingTest.class.getCanonicalName();
-    String xmlOutput = FileUtils.readFileToString(runTestAndReturnXmlFile(testClassName, false));
+    String xmlOutput = FileUtils.readFileToString(
+        runTestAndReturnXmlFile(testClassName, false), Charsets.UTF_8);
 
     assertThat(xmlOutput, containsString("<testsuite"));
     assertThat(xmlOutput, containsString("<properties>"));
@@ -275,7 +337,6 @@ public class XmlReportTest extends ConsoleRunnerTestBase {
         containsString(FailingTestRunner.class.getCanonicalName() + ".getTestRules("));
   }
 
-
   protected File runTestAndReturnXmlFile(String testClassName, boolean shouldFail)
       throws IOException, JAXBException {
     String outdirPath = temporary.newFolder("testOutputDir").getAbsolutePath();
@@ -312,7 +373,7 @@ public class XmlReportTest extends ConsoleRunnerTestBase {
 
   protected void sortTestCasesByName(List<AntJunitXmlReportListener.TestCase> testCases) {
     Collections.sort(testCases, new Comparator<AntJunitXmlReportListener.TestCase>() {
-      public int compare(AntJunitXmlReportListener.TestCase tc1,
+      @Override public int compare(AntJunitXmlReportListener.TestCase tc1,
           AntJunitXmlReportListener.TestCase tc2) {
         return tc1.getName().compareTo(tc2.getName());
       }

@@ -5,33 +5,55 @@
 from __future__ import (absolute_import, division, generators, nested_scopes, print_function,
                         unicode_literals, with_statement)
 
-import atexit
 import errno
 import os
-import tempfile
 import time
 import unittest
+from contextlib import contextmanager
 
 import mock
-import mox
 import six
 
 from pants.util import dirutil
 from pants.util.contextutil import pushd, temporary_dir
-from pants.util.dirutil import (_mkdtemp_unregister_cleaner, fast_relpath, get_basedir, read_file,
-                                relative_symlink, relativize_paths, rm_rf, safe_concurrent_creation,
-                                safe_file_dump, safe_mkdir, safe_rm_oldest_items_in_dir, touch)
+from pants.util.dirutil import (ExistingDirError, ExistingFileError, _mkdtemp_unregister_cleaner,
+                                absolute_symlink, fast_relpath, get_basedir, longest_dir_prefix,
+                                mergetree, read_file, relative_symlink, relativize_paths, rm_rf,
+                                safe_concurrent_creation, safe_file_dump, safe_mkdir, safe_mkdtemp,
+                                safe_open, safe_rm_oldest_items_in_dir, safe_rmtree, touch)
+from pants.util.objects import datatype
+
+
+def strict_patch(target, **kwargs):
+  return mock.patch(target, autospec=True, spec_set=True, **kwargs)
 
 
 class DirutilTest(unittest.TestCase):
 
   def setUp(self):
-    self._mox = mox.Mox()
     # Ensure we start in a clean state.
     _mkdtemp_unregister_cleaner()
 
-  def tearDown(self):
-    self._mox.UnsetStubs()
+  def test_longest_dir_prefix(self):
+    # Find the longest prefix (standard case).
+    prefixes = ['hello', 'hello_world', 'hello/world', 'helloworld']
+    self.assertEquals(longest_dir_prefix('hello/world/pants', prefixes),
+                      'hello/world')
+    self.assertEquals(longest_dir_prefix('hello/', prefixes),
+                      'hello')
+    self.assertEquals(longest_dir_prefix('hello', prefixes),
+                      'hello')
+    self.assertEquals(longest_dir_prefix('scoobydoobydoo', prefixes),
+                      None)
+
+  def test_longest_dir_prefix_special(self):
+    # Ensure that something that is a longest prefix, but not a longest dir
+    # prefix, is not tagged.
+    prefixes = ['helloworldhowareyou', 'helloworld']
+    self.assertEquals(longest_dir_prefix('helloworldhowareyoufine/', prefixes),
+                      None)
+    self.assertEquals(longest_dir_prefix('helloworldhowareyoufine', prefixes),
+                      None)
 
   def test_fast_relpath(self):
     def assertRelpath(expected, path, start):
@@ -44,6 +66,8 @@ class DirutilTest(unittest.TestCase):
     assertRelpath('c/', 'b/c/', 'b/')
     assertRelpath('', 'c/', 'c/')
     assertRelpath('', 'c', 'c')
+    assertRelpath('', 'c/', 'c')
+    assertRelpath('', 'c', 'c/')
     assertRelpath('c/', 'c/', '')
     assertRelpath('c', 'c', '')
 
@@ -53,26 +77,26 @@ class DirutilTest(unittest.TestCase):
     with self.assertRaises(ValueError):
       fast_relpath('/a/baseball', '/a/b')
 
-  def test_mkdtemp_setup_teardown(self):
+  @strict_patch('atexit.register')
+  @strict_patch('os.getpid')
+  @strict_patch('pants.util.dirutil.safe_rmtree')
+  @strict_patch('tempfile.mkdtemp')
+  def test_mkdtemp_setup_teardown(self,
+                                  tempfile_mkdtemp,
+                                  dirutil_safe_rmtree,
+                                  os_getpid,
+                                  atexit_register):
     def faux_cleaner():
       pass
 
     DIR1, DIR2 = 'fake_dir1__does_not_exist', 'fake_dir2__does_not_exist'
-    self._mox.StubOutWithMock(atexit, 'register')
-    self._mox.StubOutWithMock(os, 'getpid')
-    self._mox.StubOutWithMock(tempfile, 'mkdtemp')
-    self._mox.StubOutWithMock(dirutil, 'safe_rmtree')
-    atexit.register(faux_cleaner)  # Ensure only called once.
-    tempfile.mkdtemp(dir='1').AndReturn(DIR1)
-    tempfile.mkdtemp(dir='2').AndReturn(DIR2)
-    os.getpid().MultipleTimes().AndReturn('unicorn')
-    dirutil.safe_rmtree(DIR1)
-    dirutil.safe_rmtree(DIR2)
+
     # Make sure other "pids" are not cleaned.
     dirutil._MKDTEMP_DIRS['fluffypants'].add('yoyo')
 
+    tempfile_mkdtemp.side_effect = (DIR1, DIR2)
+    os_getpid.return_value = 'unicorn'
     try:
-      self._mox.ReplayAll()
       self.assertEquals(DIR1, dirutil.safe_mkdtemp(dir='1', cleaner=faux_cleaner))
       self.assertEquals(DIR2, dirutil.safe_mkdtemp(dir='2', cleaner=faux_cleaner))
       self.assertIn('unicorn', dirutil._MKDTEMP_DIRS)
@@ -85,7 +109,10 @@ class DirutilTest(unittest.TestCase):
       dirutil._MKDTEMP_DIRS.pop('fluffypants', None)
       dirutil._mkdtemp_unregister_cleaner()
 
-    self._mox.VerifyAll()
+    atexit_register.assert_called_once_with(faux_cleaner)
+    self.assertTrue(os_getpid.called)
+    self.assertEqual([mock.call(dir='1'), mock.call(dir='2')], tempfile_mkdtemp.mock_calls)
+    self.assertEqual([mock.call(DIR1), mock.call(DIR2)], dirutil_safe_rmtree.mock_calls)
 
   def test_safe_walk(self):
     """Test that directory names are correctly represented as unicode strings"""
@@ -97,6 +124,160 @@ class DirutilTest(unittest.TestCase):
         tmpdir = tmpdir.encode('utf-8')
       for _, dirs, _ in dirutil.safe_walk(tmpdir):
         self.assertTrue(all(isinstance(dirname, six.text_type) for dirname in dirs))
+
+  @contextmanager
+  def tree(self):
+    # root/
+    #   a/
+    #     b/
+    #       1
+    #       2
+    #     2 -> root/a/b/2
+    #   b -> root/a/b
+    with temporary_dir() as root:
+      with safe_open(os.path.join(root, 'a', 'b', '1'), 'wb') as fp:
+        fp.write(b'1')
+      touch(os.path.join(root, 'a', 'b', '2'))
+      os.symlink(os.path.join(root, 'a', 'b', '2'), os.path.join(root, 'a', '2'))
+      os.symlink(os.path.join(root, 'a', 'b'), os.path.join(root, 'b'))
+      with temporary_dir() as dst:
+        yield root, dst
+
+  class Dir(datatype('Dir', ['path'])):
+    pass
+
+  class File(datatype('File', ['path', 'contents'])):
+    @classmethod
+    def empty(cls, path):
+      return cls(path, contents=b'')
+
+    @classmethod
+    def read(cls, root, relpath):
+      with open(os.path.join(root, relpath)) as fp:
+        return cls(relpath, fp.read())
+
+  class Symlink(datatype('Symlink', ['path'])):
+    pass
+
+  def assert_tree(self, root, *expected):
+    def collect_tree():
+      for path, dirnames, filenames in os.walk(root, followlinks=False):
+        relpath = os.path.relpath(path, root)
+        if relpath == os.curdir:
+          relpath = ''
+        for dirname in dirnames:
+          dirpath = os.path.join(relpath, dirname)
+          if os.path.islink(os.path.join(path, dirname)):
+            yield self.Symlink(dirpath)
+          else:
+            yield self.Dir(dirpath)
+        for filename in filenames:
+          filepath = os.path.join(relpath, filename)
+          if os.path.islink(os.path.join(path, filename)):
+            yield self.Symlink(filepath)
+          else:
+            yield self.File.read(root, filepath)
+
+    self.assertEqual(frozenset(expected), frozenset(collect_tree()))
+
+  def test_mergetree_existing(self):
+    with self.tree() as (src, dst):
+      # Existing empty files
+      touch(os.path.join(dst, 'c', '1'))
+      touch(os.path.join(dst, 'a', 'b', '1'))
+
+      mergetree(src, dst)
+
+      self.assert_tree(dst,
+                       self.Dir('a'),
+                       self.File.empty('a/2'),
+                       self.Dir('a/b'),
+
+                       # Existing overlapping file should be overlayed.
+                       self.File('a/b/1', contents=b'1'),
+
+                       self.File.empty('a/b/2'),
+                       self.Dir('b'),
+                       self.File('b/1', contents=b'1'),
+                       self.File.empty('b/2'),
+                       self.Dir('c'),
+
+                       # Existing non-overlapping file should be preserved.
+                       self.File.empty('c/1'))
+
+  def test_mergetree_existing_file_mismatch(self):
+    with self.tree() as (src, dst):
+      touch(os.path.join(dst, 'a'))
+      with self.assertRaises(ExistingFileError):
+        mergetree(src, dst)
+
+  def test_mergetree_existing_dir_mismatch(self):
+    with self.tree() as (src, dst):
+      os.makedirs(os.path.join(dst, 'b', '1'))
+      with self.assertRaises(ExistingDirError):
+        mergetree(src, dst)
+
+  def test_mergetree_new(self):
+    with self.tree() as (src, dst_root):
+      dst = os.path.join(dst_root, 'dst')
+
+      mergetree(src, dst)
+
+      self.assert_tree(dst,
+                       self.Dir('a'),
+                       self.File.empty('a/2'),
+                       self.Dir('a/b'),
+                       self.File('a/b/1', contents=b'1'),
+                       self.File.empty('a/b/2'),
+                       self.Dir('b'),
+                       self.File('b/1', contents=b'1'),
+                       self.File.empty('b/2'))
+
+  def test_mergetree_ignore_files(self):
+    with self.tree() as (src, dst):
+      def ignore(root, names):
+        if root == os.path.join(src, 'a', 'b'):
+          return ['1', '2']
+
+      mergetree(src, dst, ignore=ignore)
+
+      self.assert_tree(dst,
+                       self.Dir('a'),
+                       self.File.empty('a/2'),
+                       self.Dir('a/b'),
+                       self.Dir('b'),
+                       self.File('b/1', contents=b'1'),
+                       self.File.empty('b/2'))
+
+  def test_mergetree_ignore_dirs(self):
+    with self.tree() as (src, dst):
+      def ignore(root, names):
+        if root == os.path.join(src, 'a'):
+          return ['b']
+
+      mergetree(src, dst, ignore=ignore)
+
+      self.assert_tree(dst,
+                       self.Dir('a'),
+                       self.File.empty('a/2'),
+                       self.Dir('b'),
+                       self.File('b/1', contents=b'1'),
+                       self.File.empty('b/2'))
+
+  def test_mergetree_symlink(self):
+    with self.tree() as (src, dst):
+      mergetree(src, dst, symlinks=True)
+
+      self.assert_tree(dst,
+                       self.Dir('a'),
+                       self.Symlink('a/2'),
+                       self.Dir('a/b'),
+                       self.File('a/b/1', contents=b'1'),
+                       self.File.empty('a/b/2'),
+
+                       # NB: assert_tree does not follow symlinks and so does not descend into the
+                       # symlinked b/ dir to find b/1 and b/2
+                       self.Symlink('b'))
 
   def test_relativize_paths(self):
     build_root = '/build-root'
@@ -155,6 +336,24 @@ class DirutilTest(unittest.TestCase):
       link = os.path.join('foo', 'bar')
       with self.assertRaisesRegexp(ValueError, r'Path for link.*absolute'):
         relative_symlink(source, link)
+
+  def test_relative_symlink_overwrite_existing_file(self):
+    # Succeeds, since os.unlink can be safely called on files that aren't symlinks.
+    with temporary_dir() as tmpdir_1:  # source and link in same dir
+      source = os.path.join(tmpdir_1, 'source')
+      link_path = os.path.join(tmpdir_1, 'link')
+      touch(link_path)
+      relative_symlink(source, link_path)
+
+  def test_relative_symlink_exception_on_existing_dir(self):
+    # This historically was an uncaught exception, the tested behavior is to begin catching the error.
+    with temporary_dir() as tmpdir_1:
+      source = os.path.join(tmpdir_1, 'source')
+      link_path = os.path.join(tmpdir_1, 'link')
+
+      safe_mkdir(link_path)
+      with self.assertRaisesRegexp(ValueError, r'Path for link.*overwrite an existing directory*'):
+        relative_symlink(source, link_path)
 
   def test_get_basedir(self):
     self.assertEquals(get_basedir('foo/bar/baz'), 'foo')
@@ -221,7 +420,7 @@ class DirutilTest(unittest.TestCase):
       self.assertFalse(os.path.exists(expected_file))
       self.assertTrue(os.path.exists(os.path.dirname(expected_file)))
 
-  def test_safe_concurrent_creation_exception_still_renames(self):
+  def test_safe_concurrent_creation_exception_handling(self):
     with temporary_dir() as td:
       expected_file = os.path.join(td, 'expected_file')
 
@@ -232,7 +431,7 @@ class DirutilTest(unittest.TestCase):
           raise ZeroDivisionError('zomg')
 
       self.assertFalse(os.path.exists(safe_path))
-      self.assertTrue(os.path.exists(expected_file))
+      self.assertFalse(os.path.exists(expected_file))
 
   def test_safe_rm_oldest_items_in_dir(self):
     with temporary_dir() as td:
@@ -277,3 +476,70 @@ class DirutilTest(unittest.TestCase):
       safe_rm_oldest_items_in_dir(td, 1)
       touch(os.path.join(td, 'file1'))
       self.assertEqual(len(os.listdir(td)), 1)
+
+  def test_safe_rmtree_link(self):
+    with temporary_dir() as td:
+      real = os.path.join(td, 'real')
+      link = os.path.join(td, 'link')
+      os.mkdir(real)
+      os.symlink(real, link)
+      self.assertTrue(os.path.exists(real))
+      self.assertTrue(os.path.exists(link))
+      safe_rmtree(link);
+      self.assertTrue(os.path.exists(real))
+      self.assertFalse(os.path.exists(link))
+
+
+class AbsoluteSymlinkTest(unittest.TestCase):
+  def setUp(self):
+    self.td = safe_mkdtemp()
+    self.addCleanup(safe_rmtree, self.td)
+
+    self.source = os.path.join(self.td, 'source')
+    self.link = os.path.join(self.td, 'link')
+
+  def _create_and_check_link(self, source, link):
+    absolute_symlink(source, link)
+    self.assertTrue(os.path.islink(link))
+    self.assertEquals(source, os.readlink(link))
+
+  def test_link(self):
+    # Check if parent dirs will be created for the link
+    link = os.path.join(self.td, 'a', 'b', 'c', 'self.link')
+    self._create_and_check_link(self.source, link)
+
+  def test_overwrite_link_link(self):
+    # Do it twice, to make sure we can overwrite existing link
+    self._create_and_check_link(self.source, self.link)
+    self._create_and_check_link(self.source, self.link)
+
+  def test_overwrite_link_file(self):
+    with open(self.source, 'w') as fp:
+      fp.write('evidence')
+
+    # Do it twice, to make sure we can overwrite existing link
+    self._create_and_check_link(self.source, self.link)
+    self._create_and_check_link(self.source, self.link)
+
+    # The link should have been deleted (over-written), not the file it pointed to.
+    with open(self.source) as fp:
+      self.assertEqual('evidence', fp.read())
+
+  def test_overwrite_link_dir(self):
+    nested_dir = os.path.join(self.source, 'a', 'b', 'c')
+    os.makedirs(nested_dir)
+
+    # Do it twice, to make sure we can overwrite existing link
+    self._create_and_check_link(self.source, self.link)
+    self._create_and_check_link(self.source, self.link)
+
+    # The link should have been deleted (over-written), not the dir it pointed to.
+    self.assertTrue(os.path.isdir(nested_dir))
+
+  def test_overwrite_file(self):
+    touch(self.link)
+    self._create_and_check_link(self.source, self.link)
+
+  def test_overwrite_dir(self):
+    os.makedirs(os.path.join(self.link, 'a', 'b', 'c'))
+    self._create_and_check_link(self.source, self.link)

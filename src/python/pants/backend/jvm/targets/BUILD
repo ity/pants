@@ -1,5 +1,5 @@
 
-python_library(
+target(
   name = 'all',
   dependencies = [
     ':jvm',
@@ -19,20 +19,23 @@ python_library(
     'jar_dependency.py',
     'jar_library.py',
     'jarable.py',
+    'junit_tests.py',
     'jvm_app.py',
     'jvm_binary.py',
     'jvm_prep_command.py',
     'jvm_target.py',
     'managed_jar_dependencies.py',
+    'tools_jar.py',
     'unpacked_jars.py',
   ],
   dependencies = [
     '3rdparty/python/twitter/commons:twitter.common.collections',
     '3rdparty/python/twitter/commons:twitter.common.dirutil',
     '3rdparty/python:six',
+    'src/python/pants/java/jar',
     'src/python/pants/backend/jvm/subsystems:java',
+    'src/python/pants/backend/jvm/subsystems:junit',
     'src/python/pants/backend/jvm/subsystems:jvm_platform',
-    'src/python/pants/backend/jvm:jar_dependency_utils',
     'src/python/pants/base:build_environment',
     'src/python/pants/base:deprecated',
     'src/python/pants/base:exceptions',
@@ -40,6 +43,7 @@ python_library(
     'src/python/pants/base:payload_field',
     'src/python/pants/base:validation',
     'src/python/pants/build_graph',
+    'src/python/pants/fs',
     'src/python/pants/source',
     'src/python/pants/util:memo',
     'src/python/pants/util:meta',
@@ -55,12 +59,15 @@ python_library(
     'java_agent.py',
     'java_library.py',
     'javac_plugin.py',
-    'java_tests.py',
   ],
   dependencies = [
-    ':jvm',
     '3rdparty/python:six',
+    ':jvm',
+    'src/python/pants/backend/jvm/subsystems:java',
+    'src/python/pants/backend/jvm/subsystems:junit',
+    'src/python/pants/base:deprecated',
     'src/python/pants/base:exceptions',
+    'src/python/pants/build_graph',
   ],
 )
 
@@ -72,8 +79,9 @@ python_library(
     'scala_jar_dependency.py',
   ],
   dependencies = [
-    '3rdparty/python/twitter/commons:twitter.common.collections',
     ':jvm',
+    '3rdparty/python/twitter/commons:twitter.common.collections',
+    'src/python/pants/java/jar',
     'src/python/pants/backend/jvm/subsystems:scala_platform',
     'src/python/pants/base:exceptions',
     'src/python/pants/base:validation',

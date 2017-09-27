@@ -5,19 +5,25 @@
 from __future__ import (absolute_import, division, generators, nested_scopes, print_function,
                         unicode_literals, with_statement)
 
+import logging
 import os
 import shutil
 import sys
-import tarfile
 import tempfile
 import time
 import uuid
 import zipfile
 from contextlib import closing, contextmanager
 
+from colors import green
 from six import string_types
 
 from pants.util.dirutil import safe_delete
+from pants.util.tarutil import TarFile
+
+
+class InvalidZipPath(ValueError):
+  """Indicates a bad zip file path."""
 
 
 @contextmanager
@@ -25,7 +31,7 @@ def environment_as(**kwargs):
   """Update the environment to the supplied values, for example:
 
   with environment_as(PYTHONPATH='foo:bar:baz',
-                      PYTHON='/usr/bin/python2.6'):
+                      PYTHON='/usr/bin/python2.7'):
     subprocess.Popen(foo).wait()
   """
   new_environment = kwargs
@@ -62,7 +68,7 @@ def stdio_as(stdout, stderr, stdin=None):
 
 
 @contextmanager
-def temporary_dir(root_dir=None, cleanup=True, suffix=str(), permissions=None):
+def temporary_dir(root_dir=None, cleanup=True, suffix=str(), permissions=None, prefix=tempfile.template):
   """
     A with-context that creates a temporary directory.
 
@@ -73,7 +79,8 @@ def temporary_dir(root_dir=None, cleanup=True, suffix=str(), permissions=None):
     :param bool cleanup: Whether or not to clean up the temporary directory.
     :param int permissions: If provided, sets the directory permissions to this mode.
   """
-  path = tempfile.mkdtemp(dir=root_dir, suffix=suffix)
+  path = tempfile.mkdtemp(dir=root_dir, suffix=suffix, prefix=prefix)
+
   try:
     if permissions is not None:
       os.chmod(path, permissions)
@@ -162,16 +169,27 @@ def pushd(directory):
 
 @contextmanager
 def open_zip(path_or_file, *args, **kwargs):
-  """
-    A with-context for zip files.  Passes through positional and kwargs to zipfile.ZipFile.
+  """A with-context for zip files.
 
-    :API: public
+  Passes through *args and **kwargs to zipfile.ZipFile.
+
+  :API: public
+
+  :param path_or_file: Full path to zip file.
+  :param args: Any extra args accepted by `zipfile.ZipFile`.
+  :param kwargs: Any extra keyword args accepted by `zipfile.ZipFile`.
+  :raises: `InvalidZipPath` if path_or_file is invalid.
+  :raises: `zipfile.BadZipfile` if zipfile.ZipFile cannot open a zip at path_or_file.
+  :returns: `class 'contextlib.GeneratorContextManager`.
   """
+  if not path_or_file:
+    raise InvalidZipPath('Invalid zip location: {}'.format(path_or_file))
+  allowZip64 = kwargs.pop('allowZip64', True)
   try:
-    allowZip64 = kwargs.pop('allowZip64', True)
     zf = zipfile.ZipFile(path_or_file, *args, allowZip64=allowZip64, **kwargs)
   except zipfile.BadZipfile as bze:
-    raise zipfile.BadZipfile("Bad Zipfile {0}: {1}".format(path_or_file, bze))
+    # Use the realpath in order to follow symlinks back to the problem source file.
+    raise zipfile.BadZipfile("Bad Zipfile {0}: {1}".format(os.path.realpath(path_or_file), bze))
   try:
     yield zf
   finally:
@@ -187,7 +205,7 @@ def open_tar(path_or_file, *args, **kwargs):
   """
   (path, fileobj) = ((path_or_file, None) if isinstance(path_or_file, string_types)
                      else (None, path_or_file))
-  with closing(tarfile.open(path, *args, fileobj=fileobj, **kwargs)) as tar:
+  with closing(TarFile.open(path, *args, fileobj=fileobj, **kwargs)) as tar:
     yield tar
 
 
@@ -221,3 +239,55 @@ class Timer(object):
 
   def __exit__(self, typ, val, traceback):
     self.finish = self._clock.time()
+
+
+@contextmanager
+def exception_logging(logger, msg):
+  """Provides exception logging via `logger.exception` for a given block of code.
+
+  :param logging.Logger logger: The `Logger` instance to use for logging.
+  :param string msg: The message to emit before `logger.exception` emits the traceback.
+  """
+  try:
+    yield
+  except Exception:
+    logger.exception(msg)
+    raise
+
+
+@contextmanager
+def maybe_profiled(profile_path):
+  """A profiling context manager.
+
+  :param string profile_path: The path to write profile information to. If `None`, this will no-op.
+  """
+  if not profile_path:
+    yield
+    return
+
+  import cProfile
+  profiler = cProfile.Profile()
+  try:
+    profiler.enable()
+    yield
+  finally:
+    profiler.disable()
+    profiler.dump_stats(profile_path)
+    view_cmd = green('gprof2dot -f pstats {path} | dot -Tpng -o {path}.png && open {path}.png'
+                     .format(path=profile_path))
+    logging.getLogger().info(
+      'Dumped profile data to: {}\nUse e.g. {} to render and view.'.format(profile_path, view_cmd)
+    )
+
+
+class HardSystemExit(SystemExit):
+  """A SystemExit subclass that incurs an os._exit() via special handling."""
+
+
+@contextmanager
+def hard_exit_handler():
+  """An exit helper for the daemon/fork'd context that provides for deferred os._exit(0) calls."""
+  try:
+    yield
+  except HardSystemExit:
+    os._exit(0)

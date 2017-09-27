@@ -1,5 +1,7 @@
+# Copyright 2017 Pants project contributors (see CONTRIBUTORS.md).
+# Licensed under the Apache License, Version 2.0 (see LICENSE).
+
 scala_library(
-  name='cache',
   provides=scala_artifact(
     org='org.pantsbuild',
     name='zinc-cache',
@@ -10,6 +12,9 @@ scala_library(
     '3rdparty:guava',
     '3rdparty:jsr305',
   ],
-  sources=globs('*.scala'),
+  exports=[
+    '3rdparty:guava',
+  ],
   strict_deps=True,
+  platform='java8',
 )

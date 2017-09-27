@@ -20,9 +20,11 @@ python_tests(
   sources=['test_zinc_compile_integration.py'],
   dependencies=[
     'src/python/pants/build_graph',
+    'tests/python/pants_test/backend/jvm/tasks:missing_jvm_check',
     'tests/python/pants_test/backend/jvm/tasks/jvm_compile:base_compile_integration_test',
   ],
   tags = {'integration'},
+  timeout=240,
 )
 
 python_tests(
@@ -34,8 +36,10 @@ python_tests(
     'src/python/pants/util:contextutil',
     'src/python/pants/util:dirutil',
     'tests/python/pants_test/backend/jvm/tasks/jvm_compile:base_compile_integration_test',
+    'tests/python/pants_test/cache:cache_server',
   ],
   tags = {'integration'},
+  timeout=180,
 )
 
 python_tests(
@@ -45,7 +49,7 @@ python_tests(
     'tests/python/pants_test/backend/jvm/tasks:missing_jvm_check',
     'tests/python/pants_test/backend/jvm/tasks/jvm_compile:base_compile_integration_test',
   ],
-  timeout = 120,
+  timeout = 240,
   tags = {'integration'},
 )
 
@@ -56,6 +60,7 @@ python_tests(
     ':jvm_platform_integration_mixin',
   ],
   tags = {'integration'},
+  timeout=240,
 )
 
 python_tests(
@@ -64,10 +69,12 @@ python_tests(
   dependencies=[
     'src/python/pants/backend/jvm/tasks/jvm_compile:zinc',
     'src/python/pants/fs',
+    'src/python/pants/subsystem',
     'src/python/pants/util:contextutil',
     'src/python/pants/util:dirutil',
-    'tests/python/pants_test:base_test',
     'tests/python/pants_test/java/distribution',
+    'tests/python/pants_test/subsystem:subsystem_utils',
+    'tests/python/pants_test/tasks:task_test_base',
   ],
 )
 

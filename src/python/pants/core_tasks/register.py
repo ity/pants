@@ -19,6 +19,7 @@ from pants.core_tasks.reporting_server_run import ReportingServerRun
 from pants.core_tasks.roots import ListRoots
 from pants.core_tasks.run_prep_command import (RunBinaryPrepCommand, RunCompilePrepCommand,
                                                RunTestPrepCommand)
+from pants.core_tasks.substitute_aliased_targets import SubstituteAliasedTargets
 from pants.core_tasks.targets_help import TargetsHelp
 from pants.core_tasks.what_changed import WhatChanged
 from pants.goal.goal import Goal
@@ -46,6 +47,8 @@ def register_goals():
   Goal.register('doc', 'Generate documentation.')
   Goal.register('publish', 'Publish a build artifact.')
   Goal.register('dep-usage', 'Collect target dependency usage data.')
+  Goal.register('lint', 'Find formatting errors in source code.')
+  Goal.register('fmt', 'Autoformat source code.')
 
   # Register tasks.
 
@@ -80,6 +83,7 @@ def register_goals():
   task(name='test', action=NoopTest).install('test')
 
   # Operations on files that the SCM detects as changed.
+  # TODO: Remove these in `1.5.0dev0` as part of the changed goal deprecations.
   task(name='changed', action=WhatChanged).install()
   task(name='compile-changed', action=CompileChanged).install()
   task(name='test-changed', action=TestChanged).install()
@@ -90,3 +94,7 @@ def register_goals():
 
   # Handle sources that aren't loose files in the repo.
   task(name='deferred-sources', action=DeferredSourcesMapper).install()
+
+  # Processing aliased targets has to occur very early.
+  task(name='substitute-aliased-targets', action=SubstituteAliasedTargets).install('bootstrap',
+                                                                                   first=True)

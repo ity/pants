@@ -15,7 +15,6 @@ from twitter.common.collections import OrderedSet
 from pants.base.build_environment import get_buildroot, get_scm
 from pants.base.worker_pool import SubprocPool
 from pants.base.workunit import WorkUnitLabel
-from pants.build_graph.mutable_build_graph import MutableBuildGraph
 from pants.build_graph.target import Target
 from pants.goal.products import Products
 from pants.goal.workspace import ScmWorkspace
@@ -62,7 +61,7 @@ class Context(object):
   def __init__(self, options, run_tracker, target_roots,
                requested_goals=None, target_base=None, build_graph=None,
                build_file_parser=None, address_mapper=None, console_outstream=None, scm=None,
-               workspace=None, invalidation_report=None):
+               workspace=None, invalidation_report=None, pantsd_launcher=None):
     self._options = options
     self.build_graph = build_graph
     self.build_file_parser = build_file_parser
@@ -81,6 +80,7 @@ class Context(object):
     self._workspace = workspace or (ScmWorkspace(self._scm) if self._scm else None)
     self._replace_targets(target_roots)
     self._invalidation_report = invalidation_report
+    self._pantsd_launcher = pantsd_launcher
 
   @property
   def options(self):
@@ -150,6 +150,10 @@ class Context(object):
   @property
   def invalidation_report(self):
     return self._invalidation_report
+
+  @property
+  def pantsd_launcher(self):
+    return self._pantsd_launcher
 
   def __str__(self):
     ident = Target.identify(self.targets())
@@ -250,7 +254,7 @@ class Context(object):
     # initialized somewhere, making it now unsafe to replace targets. Thus callers of this method
     # must know what they're doing!
     #
-    # TODO(John Sirois): This currently has 0 uses (outside ContextTest) in pantsbuild/pants and
+    # TODO(John Sirois): This currently has only 1 use (outside ContextTest) in pantsbuild/pants and
     # only 1 remaining known use case in the Foursquare codebase that will be able to go away with
     # the post RoundEngine engine - kill the method at that time.
     self._target_roots = list(target_roots)
@@ -264,14 +268,16 @@ class Context(object):
 
     :API: public
     """
-    target_base = os.path.join(get_buildroot(), target_base or address.spec_path)
-    if not os.path.exists(target_base):
-      os.makedirs(target_base)
+    rel_target_base = target_base or address.spec_path
+    abs_target_base = os.path.join(get_buildroot(), rel_target_base)
+    if not os.path.exists(abs_target_base):
+      os.makedirs(abs_target_base)
       # TODO: Adding source roots on the fly like this is yucky, but hopefully this
       # method will go away entirely under the new engine. It's primarily used for injecting
       # synthetic codegen targets, and that isn't how codegen will work in the future.
-    if not self.source_roots.find_by_path(target_base):
-      self.source_roots.add_source_root(target_base)
+    if not self.source_roots.find_by_path(rel_target_base):
+      # TODO: Set the lang and root category (source/test/thirdparty) based on the target type?
+      self.source_roots.add_source_root(rel_target_base)
     if dependencies:
       dependencies = [dep.address for dep in dependencies]
 
@@ -349,7 +355,7 @@ class Context(object):
     :param string root: The path to scan; by default, the build root.
     :returns: A new build graph encapsulating the targets found.
     """
-    build_graph = MutableBuildGraph(self.address_mapper)
+    build_graph = self.build_graph.clone_new()
     for address in self.address_mapper.scan_addresses(root):
       build_graph.inject_address_closure(address)
     return build_graph

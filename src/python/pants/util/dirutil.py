@@ -19,25 +19,45 @@ from contextlib import contextmanager
 from pants.util.strutil import ensure_text
 
 
+def longest_dir_prefix(path, prefixes):
+  """Given a list of prefixes, return the one that is the longest prefix to the given path.
+
+  Returns None if there are no matches.
+  """
+  longest_match, longest_prefix = 0, None
+  for prefix in prefixes:
+    if fast_relpath_optional(path, prefix) is not None and len(prefix) > longest_match:
+      longest_match, longest_prefix = len(prefix), prefix
+
+  return longest_prefix
+
+
 def fast_relpath(path, start):
   """A prefix-based relpath, with no normalization or support for returning `..`."""
-  if not path.startswith(start):
-    raise ValueError('{} is not a prefix of {}'.format(start, path))
+  relpath = fast_relpath_optional(path, start)
+  if relpath is None:
+    raise ValueError('{} is not a directory containing {}'.format(start, path))
+  return relpath
 
-  if len(path) == len(start):
-    # Items are identical: the relative path is empty.
-    return ''
-  elif len(start) == 0:
+
+def fast_relpath_optional(path, start):
+  """A prefix-based relpath, with no normalization or support for returning `..`.
+
+  Returns None if `start` is not a directory-aware prefix of `path`.
+  """
+  if len(start) == 0:
     # Empty prefix.
     return path
-  elif start[-1] == '/':
-    # The prefix indicates that it is a directory.
-    return path[len(start):]
-  elif path[len(start)] == '/':
-    # The suffix indicates that the prefix is a directory.
-    return path[len(start)+1:]
-  else:
-    raise ValueError('{} is not a directory containing {}'.format(start, path))
+
+  # Determine where the matchable prefix ends.
+  pref_end = len(start) - 1 if start[-1] == '/' else len(start)
+  if pref_end > len(path):
+    # The prefix is too long to match.
+    return None
+  elif path[:pref_end] == start[:pref_end] and (len(path) == pref_end or path[pref_end] == '/'):
+    # The prefix matches, and the entries are either identical, or the suffix indicates that
+    # the prefix is a directory.
+    return path[pref_end+1:]
 
 
 def safe_mkdir(directory, clean=False):
@@ -102,6 +122,77 @@ def safe_walk(path, **kwargs):
   return os.walk(ensure_text(path), **kwargs)
 
 
+class ExistingFileError(ValueError):
+  """Indicates a copy operation would over-write a file with a directory."""
+
+
+class ExistingDirError(ValueError):
+  """Indicates a copy operation would over-write a directory with a file."""
+
+
+def mergetree(src, dst, symlinks=False, ignore=None):
+  """Just like `shutil.copytree`, except the `dst` dir may exist.
+
+  The `src` directory will be walked and its contents copied into `dst`. If `dst` already exists the
+  `src` tree will be overlayed in it; ie: existing files in `dst` will be over-written with files
+  from `src` when they have the same subtree path.
+  """
+  safe_mkdir(dst)
+
+  for src_path, dirnames, filenames in safe_walk(src, topdown=True, followlinks=True):
+    ignorenames = ()
+    if ignore:
+      to_ignore = ignore(src_path, dirnames + filenames)
+      if to_ignore:
+        ignorenames = frozenset(to_ignore)
+
+    dst_path = os.path.join(dst, os.path.relpath(src_path, src))
+
+    visit_dirs = []
+    for dirname in dirnames:
+      if dirname in ignorenames:
+        continue
+
+      src_dir = os.path.join(src_path, dirname)
+      dst_dir = os.path.join(dst_path, dirname)
+      if os.path.exists(dst_dir):
+        if not os.path.isdir(dst_dir):
+          raise ExistingFileError('While copying the tree at {} to {}, encountered directory {} in '
+                                  'the source tree that already exists in the destination as a '
+                                  'non-directory.'.format(src, dst, dst_dir))
+        visit_dirs.append(dirname)
+      elif symlinks and os.path.islink(src_dir):
+        link = os.readlink(src_dir)
+        os.symlink(link, dst_dir)
+        # We need to halt the walk at a symlink dir; so we do not place dirname in visit_dirs
+        # here.
+      else:
+        os.makedirs(dst_dir)
+        visit_dirs.append(dirname)
+
+    # In-place mutate dirnames to halt the walk when the dir is ignored by the caller.
+    dirnames[:] = visit_dirs
+
+    for filename in filenames:
+      if filename in ignorenames:
+        continue
+
+      dst_filename = os.path.join(dst_path, filename)
+      if os.path.exists(dst_filename):
+        if not os.path.isfile(dst_filename):
+          raise ExistingDirError('While copying the tree at {} to {}, encountered file {} in the '
+                                 'source tree that already exists in the destination as a non-file.'
+                                 .format(src, dst, dst_filename))
+        else:
+          os.unlink(dst_filename)
+      src_filename = os.path.join(src_path, filename)
+      if symlinks and os.path.islink(src_filename):
+        link = os.readlink(src_filename)
+        os.symlink(link, dst_filename)
+      else:
+        shutil.copy2(src_filename, dst_filename)
+
+
 _MKDTEMP_CLEANER = None
 _MKDTEMP_DIRS = defaultdict(set)
 _MKDTEMP_LOCK = threading.RLock()
@@ -150,9 +241,15 @@ def register_rmtree(directory, cleaner=_mkdtemp_atexit_cleaner):
 def safe_rmtree(directory):
   """Delete a directory if it's present. If it's not present, no-op.
 
+  Note that if the directory argument is a symlink, only the symlink will
+  be deleted.
+
   :API: public
   """
-  shutil.rmtree(directory, ignore_errors=True)
+  if os.path.islink(directory):
+    safe_delete(directory)
+  else:
+    shutil.rmtree(directory, ignore_errors=True)
 
 
 def safe_open(filename, *args, **kwargs):
@@ -224,7 +321,10 @@ def safe_concurrent_creation(target_path):
   tmp_path = '{}.tmp.{}'.format(target_path, uuid.uuid4().hex)
   try:
     yield tmp_path
-  finally:
+  except Exception:
+    rm_rf(tmp_path)
+    raise
+  else:
     if os.path.exists(tmp_path):
       safe_concurrent_rename(tmp_path, target_path)
 
@@ -242,6 +342,34 @@ def chmod_plus_x(path):
   os.chmod(path, path_mode)
 
 
+def absolute_symlink(source_path, target_path):
+  """Create a symlink at target pointing to source using the absolute path.
+
+  :param source_path: Absolute path to source file
+  :param target_path: Absolute path to intended symlink
+  :raises ValueError if source_path or link_path are not unique, absolute paths
+  :raises OSError on failure UNLESS file already exists or no such file/directory
+  """
+  if not os.path.isabs(source_path):
+    raise ValueError("Path for source : {} must be absolute".format(source_path))
+  if not os.path.isabs(target_path):
+    raise ValueError("Path for link : {} must be absolute".format(target_path))
+  if source_path == target_path:
+    raise ValueError("Path for link is identical to source : {}".format(source_path))
+  try:
+    if os.path.lexists(target_path):
+      if os.path.islink(target_path) or os.path.isfile(target_path):
+        os.unlink(target_path)
+      else:
+        shutil.rmtree(target_path)
+    safe_mkdir_for(target_path)
+    os.symlink(source_path, target_path)
+  except OSError as e:
+    # Another run may beat us to deletion or creation.
+    if not (e.errno == errno.EEXIST or e.errno == errno.ENOENT):
+      raise
+
+
 def relative_symlink(source_path, link_path):
   """Create a symlink at link_path pointing to relative source
 
@@ -256,6 +384,10 @@ def relative_symlink(source_path, link_path):
     raise ValueError("Path for link:{} must be absolute".format(link_path))
   if source_path == link_path:
     raise ValueError("Path for link is identical to source:{}".format(source_path))
+  # The failure state below had a long life as an uncaught error. No behavior was changed here, it just adds a catch.
+  # Raising an exception does differ from absolute_symlink, which takes the liberty of deleting existing directories.
+  if os.path.isdir(link_path) and not os.path.islink(link_path):
+    raise ValueError("Path for link would overwrite an existing directory: {}".format(link_path))
   try:
     if os.path.lexists(link_path):
       os.unlink(link_path)

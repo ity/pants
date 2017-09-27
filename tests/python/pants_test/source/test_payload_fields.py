@@ -62,17 +62,23 @@ class PayloadTest(BaseTest):
   def test_passes_lazy_fileset_with_spec_through(self):
     self.create_file('foo/a.txt', 'a_contents')
 
-    fileset = LazyFilesetWithSpec('foo', 'a.txt', lambda: ['a.txt'])
+    fileset = LazyFilesetWithSpec('foo', {'globs':['foo/a.txt']}, lambda: ['foo/a.txt'])
     sf = SourcesField(sources=fileset)
 
     self.assertIs(fileset, sf.sources)
-    self.assertEqual(['a.txt'], list(sf.source_paths))
+    self.assertEqual(['foo/a.txt'], list(sf.source_paths))
 
   def test_passes_eager_fileset_with_spec_through(self):
     self.create_file('foo/a.txt', 'a_contents')
 
-    fileset = EagerFilesetWithSpec('foo', 'a.txt', {'a.txt': b'12345'})
+    fileset = EagerFilesetWithSpec(rel_root='foo',
+                                   # Glob spec is relative to build root
+                                   filespec={'globs': ['foo/foo/a.txt']},
+                                   # files are relative to `rel_root`
+                                   files=['foo/a.txt'],
+                                   files_hash={'foo/a.txt': b'12345'})
     sf = SourcesField(sources=fileset)
 
     self.assertIs(fileset, sf.sources)
-    self.assertEqual(['a.txt'], list(sf.source_paths))
+    self.assertEqual(['foo/a.txt'], list(sf.source_paths))
+    self.assertEqual(['foo/foo/a.txt'], list(sf.relative_to_buildroot()))

@@ -1,4 +1,9 @@
 page(
+  name='1.0',
+  source='1.0.md',
+)
+
+page(
   name='3rdparty',
   source='3rdparty.md',
   links=[
@@ -13,16 +18,21 @@ page(
 )
 
 page(
-  name='1.0',
-  source='1.0.md',
-)
-
-page(
   name='build_files',
   source='build_files.md',
   links=[
     ':first_tutorial',
   ]
+)
+
+page(
+  name='committers',
+  source='committers.md',
+)
+
+page(
+  name='common_tasks',
+  source='common_tasks/index.md',
 )
 
 page(
@@ -50,6 +60,11 @@ page(
 )
 
 page(
+  name='ide_support',
+  source='ide_support.md',
+)
+
+page(
   name='index',
   source='index.md',
   links=[
@@ -57,6 +72,7 @@ page(
     ':1.0',
     ':announce_201409',
     ':build_files',
+    ':common_tasks',
     ':first_concepts',
     ':first_tutorial',
     ':install',
@@ -80,6 +96,7 @@ page(
   source='invoking.md',
   links=[
     ':first_tutorial',
+    ':options',
     ':target_addresses',
   ]
 )
@@ -138,19 +155,10 @@ page(
 )
 
 page(
-  name='why_use_pants',
-  source='why_use_pants.md'
-)
-
-page(
-  name='ide_support',
-  source='ide_support.md',
-)
-
-page(
   name='dev',
   source='dev.md',
   links=[
+    ':committers',
     ':dev_tasks',
     ':dev_tasks_publish_extras',
     ':docs',
@@ -281,4 +289,9 @@ page(
   links=[
     ':howto_contribute',
   ]
+)
+
+page(
+  name='why_use_pants',
+  source='why_use_pants.md'
 )

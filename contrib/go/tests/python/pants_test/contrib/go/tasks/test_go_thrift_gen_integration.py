@@ -15,24 +15,37 @@ from pants_test.pants_run_integration_test import PantsRunIntegrationTest
 from pants_test.testutils.file_test_util import exact_files
 
 
+_NAMESPACE = dedent(
+    """
+    namespace go thrifttest.duck
+    """)
+_DUCK_STRUCT =  dedent(
+    """
+    struct Duck {
+      1: optional string quack,
+    }
+    """)
+_FEEDER_STRUCT_TEMPLATE =  dedent(
+    """
+    service Feeder {{
+      void feed(1:{include}Duck duck),
+    }}
+    """)
+
+
 class GoThriftGenIntegrationTest(PantsRunIntegrationTest):
 
   @contextmanager
-  def _create_thrift_project(self):
+  def _create_thrift_project(self, thrift_files):
     with self.temporary_sourcedir() as srcdir:
-      with safe_open(os.path.join(srcdir, 'src/thrift/thrifttest/duck.thrift'), 'w') as fp:
-        fp.write(dedent("""
-            namespace go thrifttest.duck
-
-            struct Duck {
-              1: optional string quack,
-            }
-            """).strip())
+      for path, content in thrift_files.items():
+        with safe_open(os.path.join(srcdir, path), 'w') as fp:
+          fp.write(content)
       with safe_open(os.path.join(srcdir, 'src/thrift/thrifttest/BUILD'), 'w') as fp:
         fp.write(dedent("""
             go_thrift_library(
               name='fleem',
-              sources=['duck.thrift']
+              sources=globs('*.thrift'),
             )
             """).strip())
 
@@ -42,8 +55,9 @@ class GoThriftGenIntegrationTest(PantsRunIntegrationTest):
 
             import "thrifttest/duck"
 
-            func whatevs() string {
+            func whatevs(f duck.Feeder) string {
               d := duck.NewDuck()
+              f.Feed(d)
               return d.GetQuack()
             }
             """).strip())
@@ -69,15 +83,25 @@ class GoThriftGenIntegrationTest(PantsRunIntegrationTest):
       }
       yield srcdir, config
 
-  def test_go_thrift_gen_simple(self):
+  def test_go_thrift_gen_single(self):
+    # Compile with one thrift file.
+    thrift_files = {
+        'src/thrift/thrifttest/duck.thrift':
+          _NAMESPACE + _DUCK_STRUCT + _FEEDER_STRUCT_TEMPLATE.format(include=''),
+      }
     with self.temporary_workdir() as workdir:
-      with self._create_thrift_project() as (srcdir, config):
-        args = ['gen', os.path.join(srcdir, 'src/thrift/thrifttest:fleem')]
+      with self._create_thrift_project(thrift_files) as (srcdir, config):
+        args = [
+            'compile',
+            '--compile-gofmt-skip',
+            os.path.join(srcdir, 'src/go/usethrift')
+          ]
         pants_run = self.run_pants_with_workdir(args, workdir, config=config)
         self.assert_success(pants_run)
 
         # Fetch the hash for task impl version.
-        go_thrift_contents = os.listdir(os.path.join(workdir, 'gen', 'go-thrift'))
+        go_thrift_contents = [p for p in os.listdir(os.path.join(workdir, 'gen', 'go-thrift'))
+                              if p != 'current']  # Ignore the 'current' symlink.
         self.assertEqual(len(go_thrift_contents), 1)
         hash_dir = go_thrift_contents[0]
 
@@ -87,13 +111,30 @@ class GoThriftGenIntegrationTest(PantsRunIntegrationTest):
                             target_dir.replace(os.path.sep, '.'), 'current')
 
         self.assertEquals(sorted(['src/go/thrifttest/duck/constants.go',
-                                  'src/go/thrifttest/duck/ttypes.go']),
+                                  'src/go/thrifttest/duck/ttypes.go',
+                                  'src/go/thrifttest/duck/feeder.go',
+                                  'src/go/thrifttest/duck/feeder-remote/feeder-remote.go']),
                           sorted(exact_files(root)))
 
-  def test_go_thrift_gen_and_compile(self):
+  def test_go_thrift_gen_multi(self):
+    # Compile with a namespace split across thrift files.
+    duck_include = dedent(
+        """
+        include "thrifttest/duck.thrift"
+        """)
+    thrift_files = {
+        'src/thrift/thrifttest/duck.thrift': _NAMESPACE + _DUCK_STRUCT,
+        'src/thrift/thrifttest/feeder.thrift':
+          _NAMESPACE + duck_include + _FEEDER_STRUCT_TEMPLATE.format(include='duck.'),
+      }
     with self.temporary_workdir() as workdir:
-      with self._create_thrift_project() as (srcdir, config):
-        args = ['compile.gofmt', '--skip', os.path.join(srcdir, 'src/go/usethrift')]
+      with self._create_thrift_project(thrift_files) as (srcdir, config):
+        args = [
+            # Necessary to use a newer thrift version.
+            '--thrift-binary-version=0.10.0',
+            'compile',
+            '--compile-gofmt-skip',
+            os.path.join(srcdir, 'src/go/usethrift')
+          ]
         pants_run = self.run_pants_with_workdir(args, workdir, config=config)
-
         self.assert_success(pants_run)

@@ -35,23 +35,30 @@ class TargetAddressable(Addressable):
 
   def __init__(self, alias, target_type, *args, **kwargs):
     super(TargetAddressable, self).__init__(alias, target_type)
-
+    # We assert this here even though the name keyword now defaults to the directory
+    # name, as an extra check that this defaulting did in fact happen.
     if 'name' not in kwargs:
       raise Addressable.AddressableInitError(
-        'name is a required parameter to all Targets specified within a BUILD file.'
-        '  Target type was: {target_type}.'
-        .format(target_type=self.target_type))
+        "No explicit name provided for target, and could not infer one from the directory"
+        " the BUILD file is in (is it in the root of the repo?)."
+        "  Target type was: {target_type}."
+        .format(target_type=self.addressed_type))
 
     if args:
       raise Addressable.AddressableInitError(
         'All arguments passed to Targets within BUILD files must use explicit keyword syntax.'
         '  Target type was: {target_type}.'
         '  Arguments passed were: {args}'
-        .format(target_type=self.target_type, args=args))
+        .format(target_type=self.addressed_type, args=args))
 
     self._kwargs = kwargs
     self._name = kwargs['name']
     self._dependency_specs = self._kwargs.pop('dependencies', [])
+
+    if not isinstance(self.dependency_specs, (list, set, tuple)):
+      msg = ('dependencies passed to Target constructors must be a sequence of strings, received {}'
+             .format(type(self.dependency_specs)))
+      raise TargetDefinitionException(target=self, msg=msg)
 
     for dep_spec in self.dependency_specs:
       if not isinstance(dep_spec, string_types):

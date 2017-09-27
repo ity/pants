@@ -69,8 +69,14 @@ especially relevant.
 
 > A `junit_tests` BUILD target holds source code for some JUnit tests;
 > typically, it would have one or more `java_library` targets as
-> dependencies and would import and test their code.  Note that most
-> popular scala test frameworks support running with JUnit via a base
+> dependencies and would import and test their code.
+>
+> Pants also includes support for using the ScalaTest framework.  The
+> testing framework automatically picks up scala tests that extend the
+> org.scalatest.Suite class and runs them
+> using org.scalatest.junit.JUnitRunner.
+>
+> Most other scala test frameworks support running with JUnit via a base
 > class/trait or via a `@RunWith` annotation; so you can use
 > `junit_tests` for your scala tests as well.
 >
@@ -183,7 +189,7 @@ To create a <a pantsref="jvm_bundles">bundle</a> (a binary and its dependencies,
 including helper files):
 
     :::bash
-    $ ./pants bundle --archive=zip examples/src/java/org/pantsbuild/example/hello/main
+    $ ./pants bundle --bundle-jvm-archive=zip examples/src/java/org/pantsbuild/example/hello/main
        ...lots of build output...
     08:50:54 00:02       [create-monolithic-jar]
     08:50:54 00:02         [add-internal-classes]
@@ -215,11 +221,12 @@ compilation for Java and Scala.
 Java7 vs Java6, Which Java
 --------------------------
 
-Pants first looks through any jdks specified by the jdk_paths map in pants.ini, eg:
+Pants first looks through any JDKs specified by the `paths` map in pants.ini's jvm-distributions
+section, eg:
 
     :::ini
-    [jvm]
-    jdk_paths = {
+    [jvm-distributions]
+    paths = {
         'macos': [
           '/Library/Java/JavaVirtualMachines/jdk1.7.0_79.jdk',
           '/Library/Java/JavaVirtualMachines/jdk1.8.0_45.jdk',
@@ -229,9 +236,9 @@ Pants first looks through any jdks specified by the jdk_paths map in pants.ini, 
         ]
       }
 
-If no jvms are found there, Pants uses the first java it finds in `JDK_HOME`, `JAVA_HOME`,
-or `PATH`. If no jdk_paths are set, you can specify a specific java version for just one
-pants invocation:
+If no JVMs are found there, Pants uses the first Java it finds in `JDK_HOME`, `JAVA_HOME`,
+or `PATH`. If no `paths` are specified in pants.ini, you can use JDK_HOME to set the Java version
+for just one pants invocation:
 
     :::bash
     $ JDK_HOME=/usr/lib/jvm/java-1.7.0-openjdk-amd64 ./pants ...
@@ -280,8 +287,7 @@ should design your bootclasspath to reference the union of all possible jars
 you might need to pull in from different JVMs (any paths that aren't available
 will simply be ignored by java).
 
-**Note:** Currently, pants is known to work with OpenJDK version 7 or greater,
-and Oracle JDK version 6 or greater.
+**Note:** Currently, pants is known to work with OpenJDK and Oracle JDK version 7 or greater.
 
 
 <a pantsmark="jvm_bundles"></a>
@@ -367,14 +373,14 @@ contains code compiled for this target.
 
 ### Deploying a Bundle
 
-Instead of just creating a directory tree, you can specify `bundle --archive=zip` to
+Instead of just creating a directory tree, you can specify `bundle --bundle-jvm-archive=zip` to
 `./pants bundle` to generate an archive file (a `.zip`, monolithic `.jar`, or some other
 format) instead.
 
 To use such an archive, put it where you want it, unpack it, and run:
 
     :::bash
-    $ ./pants bundle --archive=zip examples/src/java/org/pantsbuild/example/hello/main
+    $ ./pants bundle --bundle-jvm-archive=zip examples/src/java/org/pantsbuild/example/hello/main
         ...lots of build output...
     10:14:26 00:01       [create-monolithic-jar]
     10:14:26 00:01         [add-internal-classes]
@@ -395,8 +401,10 @@ To use such an archive, put it where you want it, unpack it, and run:
     Hello, Resource World!
     $
 
-Omit Parts from Binary
+Omitting or Shading the Contents of a Binary
 ----------------------
+
+### Omitting
 
 Sometimes you want to leave some files out of your binary.
 
@@ -436,8 +444,7 @@ After building our `hello` example, if we check the binary jar's contents, there
     org/pantsbuild/example/hello/world.txt
     $
 
-Shading
--------
+### Shading
 
 Sometimes you have dependencies that have conflicting package or class names. This typically occurs
 in the following scenario: Your jvm_binary depends on a 3rdparty library A (rev 1.0), and a 3rdparty
@@ -500,6 +507,98 @@ and try running
     ./pants binary testprojects/src/java/org/pantsbuild/testproject/shading
     jar -tf dist/shading.jar
 
+
+Target Scopes
+-------------
+
+### Overview
+
+Pants supports marking targets with one or more `scope` values which the JVM backend will use to filter
+dependency subgraphs at compiletime and runtime. Scopes are also used for unused dependency
+detection: only `default` scoped targets are eligible to be considered as "unused" deps.
+
+### Correspondence with other build systems
+
+Scopes in pants are similar to scopes in other build systems, with the fundamental difference
+that they apply to targets (the "nodes" of the build graph), rather than to dependency "edges".
+The reason that Pants differs in this regard is that, in a monorepo, it is strongly encouraged
+to make changes to your dependency targets (which benefits all consumers) rather than to work
+around an issue in a dependency by making a local change to your target.
+
+### Scope values
+
+Pants' built in scopes are:
+
+* `default`: The "default" scope when a scope is not specified on a target. `default` targets are
+  included on classpaths at both compiletime and runtime, and are the only targets eligible for
+  unused dep detection.
+* `compile`: Indicates that a target is only used at compiletime, and should not be included
+  in runtime binaries or bundles. javac annotation processors or scalac macros are good examples
+  of compiletime-only dependencies.
+* `runtime`: Indicates that a target is only used at runtime, and should not be presented to the
+  compiler. Targets which are only used via JVM reflection are good examples of runtime-only
+  dependencies.
+* `test`: Indicates that a target is used when running tests. This scope is typically used in
+  addition to another scope (e.g.: `scope='compile test'`). Targets which are are provided by an
+  external execution environment are good examples of compile+test dependencies.
+* `forced` _(available from pants 1.1.0)_: The `forced` scope is equivalent to the `default` scope, but additionally indicates
+  that a target is not eligible to be considered an "unused" dependency. It is sometimes necessary
+  to mark a target `forced` due to false positives in the static analysis used for unused
+  dependency detection; if possible, you should always prefer to mark a target `runtime` or
+  `compile` if that more accurately describes their usage.
+
+### Setting target scopes
+
+To set the scope of a target, you should generally prefer to pass the `scope` parameter for
+that target:
+
+    :::python
+    java_library(name='lib',
+      ..,
+      scope='runtime',
+    )
+
+Multiple scopes can be specified. The equivalent of Maven's `provided` scope can be expressed by
+specifying both compile and test scopes.
+
+    :::python
+    java_library(name='lib',
+      ..,
+      scope='compile test',
+    )
+
+If the scope of a target is not matched for a particular context, the entire subgraph represented
+by the dependency will be pruned. This means that if a dependency 'B' of a target 'A' is marked
+`compile` (for example), the dependency targets of 'B' will only be included at compiletime (unless
+'A' has other dependency paths to those targets).
+
+One effect of this behavior is that you can introduce intermediate aliases to "re-scope" a target
+when consumers need to use it in multiple ways:
+
+    :::python
+    # An alias of `:lib` which consumers can use to indicate that they only need it at compile time.
+    target(name='lib-compile',
+      dependencies=[':lib'],
+      scope='compile',
+    )
+
+    java_library(name='lib',
+      ..,
+      scope='default',
+    )
+
+Finally, for cases where only a few consumers need to "re-scope" a particular target, it is possible
+to change the scope of a single edge locally to a consumer via the `scoped` macro (which, under the
+hood, uses the previous technique of creating an intermediate alias):
+
+    :::python
+    java_library(name='lib',
+      dependencies=[
+        scoped('src/java/the/best/lib', scope='compile'),
+        'src/scala/some/other/lib',
+      ],
+    )
+
 Dependency Hygiene
 ------------------
 
@@ -543,6 +642,16 @@ The summary mode is great when users want to inspect their own targets. But for 
 analysis, disabling summary mode (by passing the `--no-summary` flag) will output raw usage data
 for each dependency edge. This mode does no aggregation, so using it effectively usually means
 doing analytics or graph analysis with an external tool.
+
+Compiler Plugins
+----------------
+
+Pants has robust support for both developing and using compiler plugins for
+javac and scalac.  For more details:
+
+- [[javac plugins with Pants|pants('examples/src/java/org/pantsbuild/example/javac/plugin:readme')]].
+- [[scalac plugins with Pants|pants('examples/src/scala/org/pantsbuild/example/scalac/plugin:readme')]].
+
 
 Further Reading
 ---------------

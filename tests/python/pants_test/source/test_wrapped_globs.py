@@ -12,7 +12,7 @@ from pants.base.payload import Payload
 from pants.build_graph.address_lookup_error import AddressLookupError
 from pants.build_graph.build_file_aliases import BuildFileAliases
 from pants.build_graph.target import Target
-from pants.source.wrapped_globs import Globs, RGlobs
+from pants.source.wrapped_globs import EagerFilesetWithSpec, Globs, LazyFilesetWithSpec, RGlobs
 from pants_test.base_test import BaseTest
 
 
@@ -83,36 +83,23 @@ class FilesetRelPathWrapperTest(BaseTest):
 
   def test_rglob_to_spec_simple(self):
     self._spec_test('rglobs("*.java")',
-                    {'globs': ['y/**/*.java', 'y/*.java']})
+                    {'globs': ['y/**/*.java']})
 
   def test_rglob_to_spec_multi(self):
     self._spec_test('rglobs("a/**/b/*.java")',
-                    {'globs': ['y/a/**/b/**/*.java',
-                               'y/a/**/b/*.java',
-                               'y/a/b/**/*.java',
-                               'y/a/b/*.java']})
+                    {'globs': ['y/a/**/b/**/*.java']})
 
   def test_rglob_to_spec_multi_more(self):
     self._spec_test('rglobs("a/**/b/**/c/*.java")',
-                    {'globs': ['y/a/**/b/**/c/**/*.java',
-                               'y/a/**/b/**/c/*.java',
-                               'y/a/**/b/c/**/*.java',
-                               'y/a/**/b/c/*.java',
-
-                               'y/a/b/**/c/**/*.java',
-                               'y/a/b/**/c/*.java',
-                               'y/a/b/c/**/*.java',
-                               'y/a/b/c/*.java']})
+                    {'globs': ['y/a/**/b/**/c/**/*.java']})
 
   def test_rglob_to_spec_mid(self):
     self._spec_test('rglobs("a/**/b/Fleem.java")',
-                    {'globs': ['y/a/**/b/Fleem.java',
-                               'y/a/b/Fleem.java']})
+                    {'globs': ['y/a/**/b/Fleem.java']})
 
   def test_rglob_to_spec_explicit(self):
     self._spec_test('rglobs("a/**/*.java")',
-                    {'globs': ['y/a/**/*.java',
-                               'y/a/*.java']})
+                    {'globs': ['y/a/**/*.java']})
 
   def test_glob_exclude(self):
     self.add_to_build_file('y/BUILD', dedent("""
@@ -235,3 +222,32 @@ class FilesetRelPathWrapperTest(BaseTest):
                            'dummy_target(name="w", sources=rglobs("*.java", follow_links=False))')
     graph = self.context().scan()
     assert ['foo.java'] == list(graph.get_target_from_spec('z/w').sources_relative_to_source_root())
+
+
+class FilesetWithSpecTest(BaseTest):
+
+  def test_lazy_fileset_with_spec_fails_if_filespec_not_prefixed_by_relroot(self):
+    with self.assertRaises(ValueError):
+      LazyFilesetWithSpec('foo', {'globs':['notfoo/a.txt']}, lambda: ['foo/a.txt'])
+
+  def test_eager_fileset_with_spec_fails_if_filespec_not_prefixed_by_relroot(self):
+    with self.assertRaises(ValueError):
+      EagerFilesetWithSpec('foo', {'globs':['notfoo/a.txt']}, files=['files'], files_hash='deadbeef')
+
+  def test_lazy_fileset_with_spec_fails_if_exclude_filespec_not_prefixed_by_relroot(self):
+    with self.assertRaises(ValueError):
+      LazyFilesetWithSpec('foo',
+                          {'globs': [], 'exclude': [{'globs': ['notfoo/a.txt']}]},
+                          lambda: ['foo/a.txt'])
+
+  def test_eager_fileset_with_spec_fails_if_exclude_filespec_not_prefixed_by_relroot(self):
+    with self.assertRaises(ValueError):
+      EagerFilesetWithSpec('foo',
+                           {'globs': [], 'exclude': [{'globs': ['notfoo/a.txt']}]},
+                           files=['files'],
+                           files_hash='deadbeef')
+
+  def test_iter_relative_paths(self):
+    efws = EagerFilesetWithSpec('test_root', {'globs': []}, files=['a', 'b', 'c'], files_hash='deadbeef')
+    result = list(efws.paths_from_buildroot_iter())
+    self.assertEquals(result, ['test_root/a', 'test_root/b', 'test_root/c'])

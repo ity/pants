@@ -7,11 +7,11 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
 
 import os
 
-from pants.backend.jvm.jar_dependency_utils import M2Coordinate
-from pants.backend.jvm.targets.jar_dependency import JarDependency
 from pants.backend.jvm.targets.jar_library import JarLibrary
 from pants.backend.jvm.tasks.jar_import_products import JarImportProducts
 from pants.fs.archive import ZIP
+from pants.java.jar.jar_dependency import JarDependency
+from pants.java.jar.jar_dependency_utils import M2Coordinate
 from pants.util.contextutil import open_zip, temporary_dir, temporary_file
 from pants.util.dirutil import safe_mkdir, safe_open, safe_walk, touch
 from pants_test.contrib.android.test_android_base import TestAndroidBase
@@ -39,8 +39,10 @@ class UnpackLibrariesTest(TestAndroidBase):
         fp.close()
     if classes_jar:
       self.create_jarfile(location, filenames=filenames)
+    resource_dir = os.path.join(location, 'res')
+    safe_mkdir(resource_dir)
     if resources:
-      safe_mkdir(os.path.join(location, 'res'))
+      touch(os.path.join(resource_dir, 'resource_file'))
     return location
 
   def create_aarfile(self, location, name, filenames=None):

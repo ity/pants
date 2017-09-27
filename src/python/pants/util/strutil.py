@@ -17,7 +17,7 @@ def ensure_binary(text_or_binary):
   elif isinstance(text_or_binary, six.text_type):
     return text_or_binary.encode('utf8')
   else:
-    raise TypeError('Argument is neither text nor binary type.')
+    raise TypeError('Argument is neither text nor binary type.({})'.format(type(text_or_binary)))
 
 
 def ensure_text(text_or_binary):
@@ -26,7 +26,7 @@ def ensure_text(text_or_binary):
   elif isinstance(text_or_binary, six.text_type):
     return text_or_binary
   else:
-    raise TypeError('Argument is neither text nor binary type.')
+    raise TypeError('Argument is neither text nor binary type ({})'.format(type(text_or_binary)))
 
 
 def is_text_or_binary(obj):
@@ -63,3 +63,21 @@ def pluralize(count, item_type):
 
   text = '{} {}'.format(count, item_type if count == 1 else pluralize_string(item_type))
   return text
+
+
+def strip_prefix(string, prefix):
+  """Returns a copy of the string from which the multi-character prefix has been stripped.
+
+  Use strip_prefix() instead of lstrip() to remove a substring (instead of individual characters)
+  from the beginning of a string, if the substring is present.  lstrip() does not match substrings
+  but rather treats a substring argument as a set of characters.
+
+  :param str string: The string from which to strip the specified prefix.
+  :param str prefix: The substring to strip from the left of string, if present.
+  :return: The string with prefix stripped from the left, if present.
+  :rtype: string
+  """
+  if string.startswith(prefix):
+    return string[len(prefix):]
+  else:
+    return string

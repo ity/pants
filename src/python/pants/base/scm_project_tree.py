@@ -10,7 +10,8 @@ import logging
 import os
 from types import NoneType
 
-from pants.base.project_tree import PTSTAT_DIR, PTSTAT_FILE, PTSTAT_LINK, ProjectTree
+from pants.base.deprecated import deprecated
+from pants.base.project_tree import Dir, File, Link, ProjectTree
 from pants.util.dirutil import fast_relpath
 from pants.util.memo import memoized
 
@@ -19,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 class ScmProjectTree(ProjectTree):
+  @deprecated('1.5.0.dev0',
+              hint_message="ScmProjectTree was lightly used, and is now deprecated.")
   def __init__(self, build_root, scm, rev, ignore_patterns=None):
     super(ScmProjectTree, self).__init__(build_root, ignore_patterns)
     self._scm = scm
@@ -38,8 +41,10 @@ class ScmProjectTree(ProjectTree):
     files = self._reader.listdir(self._scm_relpath(dir_relpath))
     return [filename for filename in files if fnmatch.fnmatch(filename, glob)]
 
-  def _listdir_raw(self, relpath):
-    return self._reader.listdir(self._scm_relpath(relpath))
+  def _scandir_raw(self, relpath):
+    # TODO: Further optimization possible.
+    for name in self._reader.listdir(self._scm_relpath(relpath)):
+      yield self._lstat(os.path.join(relpath, name))
 
   def _isdir_raw(self, relpath):
     return self._reader.isdir(self._scm_relpath(relpath))
@@ -57,16 +62,16 @@ class ScmProjectTree(ProjectTree):
   def _relative_readlink_raw(self, relpath):
     return self._reader.readlink(self._scm_relpath(relpath))
 
-  def _lstat_raw(self, relpath):
+  def _lstat(self, relpath):
     mode = type(self._reader.lstat(self._scm_relpath(relpath)))
     if mode == NoneType:
       return None
     elif mode == self._reader.Symlink:
-      return PTSTAT_LINK
+      return Link(relpath)
     elif mode == self._reader.Dir:
-      return PTSTAT_DIR
+      return Dir(relpath)
     elif mode == self._reader.File:
-      return PTSTAT_FILE
+      return File(relpath)
     else:
       raise IOError('Unsupported file type in {}: {}'.format(self, relpath))
 

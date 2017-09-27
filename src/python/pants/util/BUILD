@@ -10,9 +10,20 @@ python_library(
    name = 'contextutil',
    sources = ['contextutil.py'],
    dependencies = [
+     '3rdparty/python:ansicolors',
      '3rdparty/python:six',
      ':dirutil',
+     ':tarutil',
    ],
+)
+
+python_library(
+  name = 'desktop',
+  sources = ['desktop.py'],
+  dependencies = [
+    ':osutil',
+    'src/python/pants/util:process_handler',
+  ],
 )
 
 python_library(
@@ -42,7 +53,6 @@ python_library(
 python_library(
   name = 'filtering',
   sources = ['filtering.py'],
-  dependencies = [],
 )
 
 python_library(
@@ -73,6 +83,10 @@ python_library(
 python_library(
   name = 'process_handler',
   sources = ['process_handler.py'],
+  dependencies=[
+    '3rdparty/python:subprocess32',
+    ':meta',
+  ]
 )
 
 python_library(
@@ -102,8 +116,11 @@ python_library(
 )
 
 python_library(
-  name = 'timeout',
-  sources = ['timeout.py'],
+  name = 'tarutil',
+  sources = ['tarutil.py'],
+  dependencies = [
+    '3rdparty/python:six',
+  ],
 )
 
 python_library(

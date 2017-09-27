@@ -5,11 +5,11 @@
 from __future__ import (absolute_import, division, generators, nested_scopes, print_function,
                         unicode_literals, with_statement)
 
-import logging
 import os
 import shutil
 
 import six.moves.urllib.parse as urllib_parse
+from pants.base.build_environment import get_buildroot
 from pants.base.exceptions import TaskError
 from pants.fs.archive import archiver_for_path
 from pants.net.http.fetcher import Fetcher
@@ -21,14 +21,13 @@ from pants.contrib.node.targets.node_preinstalled_module import NodePreinstalled
 from pants.contrib.node.tasks.node_resolve import NodeResolve
 
 
-logger = logging.getLogger(__name__)
-
-
 class NodePreinstalledModuleResolver(Subsystem, NodeResolverBase):
   options_scope = 'node-preinstalled-module-resolver'
 
   @classmethod
   def register_options(cls, register):
+    register('--fetch-timeout-secs', type=int, advanced=True, default=10,
+             help='Timeout the fetch if the connection is idle for longer than this value.')
     super(NodePreinstalledModuleResolver, cls).register_options(register)
     NodeResolve.register_resolver_for_type(NodePreinstalledModule, cls)
 
@@ -44,26 +43,29 @@ class NodePreinstalledModuleResolver(Subsystem, NodeResolverBase):
 
       download_path = os.path.join(temp_dir, archive_file_name)
 
-      logger.info('Downloading archive {archive_file_name} from '
-                  '{dependencies_archive_url} to {path}'
-                  .format(archive_file_name=archive_file_name,
-                          dependencies_archive_url=target.dependencies_archive_url,
-                          path=download_path))
+      node_task.context.log.info(
+        'Downloading archive {archive_file_name} from '
+        '{dependencies_archive_url} to {path}'
+        .format(archive_file_name=archive_file_name,
+                dependencies_archive_url=target.dependencies_archive_url,
+                path=download_path))
 
       try:
-        Fetcher().download(target.dependencies_archive_url,
-                           listener=Fetcher.ProgressListener(),
-                           path_or_fd=download_path)
+        Fetcher(get_buildroot()).download(target.dependencies_archive_url,
+                                          listener=Fetcher.ProgressListener(),
+                                          path_or_fd=download_path,
+                                          timeout_secs=self.get_options().fetch_timeout_secs)
       except Fetcher.Error as error:
         raise TaskError('Failed to fetch preinstalled node_modules for {target} from {url}: {error}'
                         .format(target=target.address.reference(),
                                 url=target.dependencies_archive_url,
                                 error=error))
 
-      logger.info('Fetched archive {archive_file_name} from {dependencies_archive_url} to {path}'
-                  .format(archive_file_name=archive_file_name,
-                          dependencies_archive_url=target.dependencies_archive_url,
-                          path=download_path))
+      node_task.context.log.info(
+        'Fetched archive {archive_file_name} from {dependencies_archive_url} to {path}'
+        .format(archive_file_name=archive_file_name,
+                dependencies_archive_url=target.dependencies_archive_url,
+                path=download_path))
 
       archiver_for_path(archive_file_name).extract(download_path, temp_dir)
 

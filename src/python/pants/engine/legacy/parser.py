@@ -6,16 +6,16 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
                         unicode_literals, with_statement)
 
 import os
-import threading
 
 import six
 
 from pants.base.build_file_target_factory import BuildFileTargetFactory
 from pants.base.parse_context import ParseContext
 from pants.engine.legacy.structs import BundleAdaptor, Globs, RGlobs, TargetAdaptor, ZGlobs
+from pants.engine.mapper import UnaddressableObjectError
 from pants.engine.objects import Serializable
 from pants.engine.parser import Parser
-from pants.util.memo import memoized_method, memoized_property
+from pants.util.memo import memoized_property
 
 
 class LegacyPythonCallbacksParser(Parser):
@@ -28,18 +28,31 @@ class LegacyPythonCallbacksParser(Parser):
   macros and target factories.
   """
 
-  _objects = []
-  _lock = threading.Lock()
+  def __init__(self, symbol_table, aliases):
+    """
+    :param symbol_table: A SymbolTable for this parser, which will be overlaid with the given
+      additional aliases.
+    :type symbol_table: :class:`pants.engine.parser.SymbolTable`
+    :param aliases: Additional BuildFileAliases to register.
+    :type aliases: :class:`pants.build_graph.build_file_aliases.BuildFileAliases`
+    """
+    super(LegacyPythonCallbacksParser, self).__init__()
+    self._symbols, self._parse_context = self._generate_symbols(symbol_table, aliases)
 
-  @classmethod
-  @memoized_method
-  def _get_symbols(cls, symbol_table_cls):
-    symbol_table = symbol_table_cls.table()
-    # TODO: nasty escape hatch
-    aliases = symbol_table_cls.aliases()
+  @staticmethod
+  def _generate_symbols(symbol_table, aliases):
+    symbols = {}
+
+    # Compute "per path" symbols.  For performance, we use the same ParseContext, which we
+    # mutate (in a critical section) to set the rel_path appropriately before it's actually used.
+    # This allows this method to reuse the same symbols for all parses.  Meanwhile we set the
+    # rel_path to None, so that we get a loud error if anything tries to use it before it's set.
+    # TODO: See https://github.com/pantsbuild/pants/issues/3561
+    parse_context = ParseContext(rel_path=None, type_aliases=symbols)
 
     class Registrar(BuildFileTargetFactory):
-      def __init__(self, type_alias, object_type):
+      def __init__(self, parse_context, type_alias, object_type):
+        self._parse_context = parse_context
         self._type_alias = type_alias
         self._object_type = object_type
         self._serializable = Serializable.is_serializable_type(self._object_type)
@@ -49,56 +62,68 @@ class LegacyPythonCallbacksParser(Parser):
         return [self._object_type]
 
       def __call__(self, *args, **kwargs):
+        # Target names default to the name of the directory their BUILD file is in
+        # (as long as it's not the root directory).
+        if 'name' not in kwargs and issubclass(self._object_type, TargetAdaptor):
+          dirname = os.path.basename(self._parse_context.rel_path)
+          if dirname:
+            kwargs['name'] = dirname
+          else:
+            raise UnaddressableObjectError(
+                'Targets in root-level BUILD files must be named explicitly.')
         name = kwargs.get('name')
         if name and self._serializable:
-          obj = self._object_type(type_alias=self._type_alias, **kwargs)
-          cls._objects.append(obj)
+          kwargs.setdefault('type_alias', self._type_alias)
+          obj = self._object_type(**kwargs)
+          self._parse_context._storage.add(obj)
           return obj
         else:
           return self._object_type(*args, **kwargs)
 
-    # Compute a single ParseContext for a default path, which we will mutate for each parsed path.
-    symbols = {}
-    for alias, target_macro_factory in aliases.target_macro_factories.items():
-      for target_type in target_macro_factory.target_types:
-        symbols[target_type] = TargetAdaptor
-    parse_context = ParseContext(rel_path='', type_aliases=symbols)
-
-    for alias, symbol in symbol_table.items():
-      registrar = Registrar(alias, symbol)
+    for alias, symbol in symbol_table.table().items():
+      registrar = Registrar(parse_context, alias, symbol)
       symbols[alias] = registrar
       symbols[symbol] = registrar
 
     if aliases.objects:
       symbols.update(aliases.objects)
 
-    # Compute "per path" symbols (which will all use the same mutable ParseContext).
-    aliases = symbol_table_cls.aliases()
     for alias, object_factory in aliases.context_aware_object_factories.items():
       symbols[alias] = object_factory(parse_context)
 
     for alias, target_macro_factory in aliases.target_macro_factories.items():
+      underlying_symbol = symbols.get(alias, TargetAdaptor)
       symbols[alias] = target_macro_factory.target_macro(parse_context)
       for target_type in target_macro_factory.target_types:
-        symbols[target_type] = TargetAdaptor
+        symbols[target_type] = Registrar(parse_context, alias, underlying_symbol)
 
     # TODO: Replace builtins for paths with objects that will create wrapped PathGlobs objects.
-    symbols['globs'] = Globs
-    symbols['rglobs'] = RGlobs
-    symbols['zglobs'] = ZGlobs
+    # The strategy for https://github.com/pantsbuild/pants/issues/3560 should account for
+    # migrating these additional captured arguments to typed Sources.
+    class GlobWrapper(object):
+      def __init__(self, parse_context, glob_type):
+        self._parse_context = parse_context
+        self._glob_type = glob_type
+
+      def __call__(self, *args, **kwargs):
+        return self._glob_type(*args, spec_path=self._parse_context.rel_path, **kwargs)
+
+    symbols['globs'] = GlobWrapper(parse_context, Globs)
+    symbols['rglobs'] = GlobWrapper(parse_context, RGlobs)
+    symbols['zglobs'] = GlobWrapper(parse_context, ZGlobs)
+
     symbols['bundle'] = BundleAdaptor
 
     return symbols, parse_context
 
-  @classmethod
-  def parse(cls, filepath, filecontent, symbol_table_cls):
-    symbols, parse_context = cls._get_symbols(symbol_table_cls)
+  def parse(self, filepath, filecontent):
     python = filecontent
 
-    # Mutate the parse context for the new path.
-    parse_context._rel_path = os.path.dirname(filepath)
-
-    with cls._lock:
-      del cls._objects[:]
-      six.exec_(python, symbols, {})
-      return list(cls._objects)
+    # Mutate the parse context for the new path, then exec, and copy the resulting objects.
+    # We execute with a (shallow) clone of the symbols as a defense against accidental
+    # pollution of the namespace via imports or variable definitions. Defending against
+    # _intentional_ mutation would require a deep clone, which doesn't seem worth the cost at
+    # this juncture.
+    self._parse_context._storage.clear(os.path.dirname(filepath))
+    six.exec_(python, dict(self._symbols))
+    return list(self._parse_context._storage.objects)

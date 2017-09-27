@@ -2,6 +2,15 @@
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 python_library(
+  name='argfile',
+  sources=['argfile.py'],
+  dependencies=[
+    'src/python/pants/util:contextutil',
+    'src/python/pants/util:dirutil',
+  ]
+)
+
+python_library(
   name='artifact',
   sources=['artifact.py'],
   dependencies=[
@@ -9,14 +18,6 @@ python_library(
     ':repository',
     'src/python/pants/base:payload_field',
   ],
-)
-
-python_library(
-  name='jar_dependency_utils',
-  sources=['jar_dependency_utils.py'],
-  dependencies=[
-    'src/python/pants/util:memo',
-  ]
 )
 
 python_library(
@@ -31,22 +32,21 @@ python_library(
     'src/python/pants/backend/jvm/subsystems:shader',
     'src/python/pants/backend/jvm/targets:all',
     'src/python/pants/backend/jvm/tasks:all',
+    'src/python/pants/base:deprecated',
     'src/python/pants/build_graph',
     'src/python/pants/goal',
     'src/python/pants/goal:task_registrar',
+    'src/python/pants/java/jar',
   ],
 )
 
 python_library(
   name='ivy_utils',
   sources=['ivy_utils.py'],
-  resource_targets=[
-    ':ivy_utils_resources',
-  ],
   dependencies=[
     '3rdparty/python/twitter/commons:twitter.common.collections',
     '3rdparty/python:six',
-    ':jar_dependency_utils',
+    ':ivy_utils_resources',
     'src/python/pants/backend/jvm/subsystems:jar_dependency_management',
     'src/python/pants/backend/jvm/targets:jvm',
     'src/python/pants/base:build_environment',
@@ -56,6 +56,7 @@ python_library(
     'src/python/pants/build_graph',
     'src/python/pants/ivy',
     'src/python/pants/java:util',
+    'src/python/pants/java/jar',
     'src/python/pants/util:dirutil',
     'src/python/pants/util:fileutil',
   ],

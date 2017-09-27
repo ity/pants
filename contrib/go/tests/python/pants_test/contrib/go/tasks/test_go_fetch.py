@@ -13,7 +13,7 @@ from pants.build_graph.address import Address
 from pants.util.contextutil import temporary_dir
 from pants_test.tasks.task_test_base import TaskTestBase
 
-from pants.contrib.go.subsystems.fetchers import ArchiveFetcher, Fetchers
+from pants.contrib.go.subsystems.fetcher import ArchiveFetcher
 from pants.contrib.go.targets.go_remote_library import GoRemoteLibrary
 from pants.contrib.go.tasks.go_fetch import GoFetch
 
@@ -49,20 +49,20 @@ class GoFetchTest(TaskTestBase):
     r2 = self.make_target(spec='3rdparty/go/r2', target_type=GoRemoteLibrary)
 
     go_fetch = self.create_task(self.context())
-    resolved = go_fetch._resolve(r1, self.address('3rdparty/go/r2'), 'r2', implicit_ok=False)
+    resolved = go_fetch._resolve(r1, self.address('3rdparty/go/r2'), 'r2', rev=None, implicit_ok=False)
     self.assertEqual(r2, resolved)
 
   def test_resolve_and_inject_explicit_failure(self):
     r1 = self.make_target(spec='3rdparty/go/r1', target_type=GoRemoteLibrary)
     go_fetch = self.create_task(self.context())
     with self.assertRaises(go_fetch.UndeclaredRemoteLibError) as cm:
-      go_fetch._resolve(r1, self.address('3rdparty/go/r2'), 'r2', implicit_ok=False)
+      go_fetch._resolve(r1, self.address('3rdparty/go/r2'), 'r2', rev=None, implicit_ok=False)
     self.assertEqual(cm.exception.address, self.address('3rdparty/go/r2'))
 
   def test_resolve_and_inject_implicit(self):
     r1 = self.make_target(spec='3rdparty/go/r1', target_type=GoRemoteLibrary)
     go_fetch = self.create_task(self.context())
-    r2 = go_fetch._resolve(r1, self.address('3rdparty/go/r2'), 'r2', implicit_ok=True)
+    r2 = go_fetch._resolve(r1, self.address('3rdparty/go/r2'), 'r2', rev=None, implicit_ok=True)
     self.assertEqual(self.address('3rdparty/go/r2'), r2.address)
     self.assertIsInstance(r2, GoRemoteLibrary)
 
@@ -70,7 +70,7 @@ class GoFetchTest(TaskTestBase):
     r1 = self.make_target(spec='3rdparty/go/r1', target_type=GoRemoteLibrary)
     self.make_target(spec='3rdparty/go/r2', target_type=GoRemoteLibrary)
     go_fetch = self.create_task(self.context())
-    r2_resolved = go_fetch._resolve(r1, self.address('3rdparty/go/r2'), 'r2', implicit_ok=True)
+    r2_resolved = go_fetch._resolve(r1, self.address('3rdparty/go/r2'), 'r2', rev=None, implicit_ok=True)
     self.assertEqual(self.address('3rdparty/go/r2'), r2_resolved.address)
     self.assertIsInstance(r2_resolved, GoRemoteLibrary)
 
@@ -104,11 +104,10 @@ class GoFetchTest(TaskTestBase):
 
   def _create_fetch_context(self, zipdir):
     """Given a directory of zipfiles, creates a context for GoFetch."""
-    self.set_options_for_scope('go-fetchers', mapping={r'.*': Fetchers.alias(ArchiveFetcher)})
     matcher = ArchiveFetcher.UrlInfo(url_format=os.path.join(zipdir, '\g<zip>.zip'),
                                      default_rev='HEAD',
                                      strip_level=0)
-    self.set_options_for_scope('go-archive-fetcher', matchers={r'localzip/(?P<zip>[^/]+)': matcher})
+    self.set_options_for_scope('go-fetchers', matchers={r'localzip/(?P<zip>[^/]+)': matcher})
     context = self.context()
     context.products.safe_create_data('go_remote_lib_src', lambda: defaultdict(str))
     return context
@@ -139,7 +138,6 @@ class GoFetchTest(TaskTestBase):
         }
         self._init_dep_graph_files(src, zipdir, dep_graph)
 
-        self.set_options_for_scope('source', source_roots={'3rdparty/go': ['go_remote']})
         r1 = self.target('3rdparty/go/localzip/r1')
 
         context = self._create_fetch_context(zipdir)
@@ -161,7 +159,6 @@ class GoFetchTest(TaskTestBase):
         }
         self._init_dep_graph_files(src, zipdir, dep_graph)
 
-        self.set_options_for_scope('source', source_roots={'3rdparty/go': ['go_remote']})
         r1 = self.target('3rdparty/go/localzip/r1')
         r2 = self.target('3rdparty/go/localzip/r2')
 
@@ -183,7 +180,6 @@ class GoFetchTest(TaskTestBase):
         }
         self._init_dep_graph_files(src, zipdir, dep_graph)
 
-        self.set_options_for_scope('source', source_roots={'3rdparty/go': ['go_remote']})
         r1 = self.target('3rdparty/go/localzip/r1')
         r2 = self.target('3rdparty/go/localzip/r2')
 
@@ -225,37 +221,3 @@ class GoFetchTest(TaskTestBase):
     remote_import_ids = go_fetch._get_remote_import_paths('github.com/u/a',
                                                           gopath=self.build_root)
     self.assertItemsEqual(remote_import_ids, ['bitbucket.org/u/b', 'github.com/u/c'])
-
-  def test_find_meta_tag_multiline(self):
-    test_html = """<!DOCTYPE html>
-    <html>
-    <head>
-    <meta name="go-import" content="google.golang.org/api git https://code.googlesource.com/google-api-go-client">
-    <meta name="go-source" content="google.golang.org/api https://github.com/google/google-api-go-client https://github.com/google/google-api-go-client/tree/master{/dir} https://github.com/google/google-api-go-client/tree/master{/dir}/{file}#L{line}">
-    <meta http-equiv="refresh" content="0; url=https://godoc.org/google.golang.org/api/googleapi">
-    </head>
-    <body>
-    Nothing to see here. Please <a href="https://godoc.org/google.golang.org/api/googleapi">move along</a>.
-    </body>
-    </html>"""
-
-    go_fetch = self.create_task(self.context())
-    meta_tag_content = go_fetch._find_meta_tag(test_html)
-
-    self.assertEqual(meta_tag_content, ('google.golang.org/api', 'git', 'https://code.googlesource.com/google-api-go-client'))
-
-  def test_find_meta_tag_single_line(self):
-    test_html = '<!DOCTYPE html><html><head><meta name="go-import" content="google.golang.org/api git https://code.googlesource.com/google-api-go-client"></head><body> Nothing to see here.</body></html>'
-
-    go_fetch = self.create_task(self.context())
-    meta_tag_content = go_fetch._find_meta_tag(test_html)
-
-    self.assertEqual(meta_tag_content, ('google.golang.org/api', 'git', 'https://code.googlesource.com/google-api-go-client'))
-
-  def test_no_meta_tag(self):
-    test_html = "<!DOCTYPE html><html><head></head><body> Nothing to see here.</body></html>"
-
-    go_fetch = self.create_task(self.context())
-    meta_tag_content = go_fetch._find_meta_tag(test_html)
-
-    self.assertEqual(meta_tag_content, (None, None, None))

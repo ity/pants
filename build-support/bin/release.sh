@@ -67,7 +67,7 @@ function run_local_pants() {
 
 # When we do (dry-run) testing, we need to run the packaged pants.
 # It doesn't have internal backend plugins so when we execute it
-# at the repo build root, the root pants.ini will ask it load
+# at the repo build root, the root pants.ini will ask it to load
 # internal backend packages and their dependencies which it doesn't have,
 # and it'll fail. To solve that problem, we load the internal backend package
 # dependencies into the pantsbuild.pants venv.
@@ -77,11 +77,16 @@ function execute_packaged_pants_with_internal_backends() {
   PANTS_PYTHON_REPOS_REPOS="['${ROOT}/dist']" pants \
     --no-verify-config \
     --pythonpath="['pants-plugins/src/python']" \
-    --backend-packages="[ \
-        'internal_backend.optional', \
-        'internal_backend.repositories', \
-        'internal_backend.sitegen', \
-        'internal_backend.utilities', \
+    --backend-packages="[\
+        'pants.backend.codegen',\
+        'pants.backend.docgen',\
+        'pants.backend.graph_info',\
+        'pants.backend.jvm',\
+        'pants.backend.project_info',\
+        'pants.backend.python',\
+        'internal_backend.repositories',\
+        'internal_backend.sitegen',\
+        'internal_backend.utilities',\
       ]" \
     "$@"
 }
@@ -114,10 +119,10 @@ function build_packages() {
     NAME=$(pkg_name $PACKAGE)
     BUILD_TARGET=$(pkg_build_target $PACKAGE)
 
-    banner "Building package ${NAME}-$(local_version) with target '${BUILD_TARGET}' ..."
-
+    start_travis_section "${NAME}" "Building package ${NAME}-$(local_version) with target '${BUILD_TARGET}'"
     run_local_pants setup-py --recursive ${BUILD_TARGET} || \
-    die "Failed to build package ${NAME}-$(local_version) with target '${BUILD_TARGET}'!"
+      die "Failed to build package ${NAME}-$(local_version) with target '${BUILD_TARGET}'!"
+    end_travis_section
   done
 }
 
@@ -127,16 +132,18 @@ function publish_packages() {
   do
     targets+=($(pkg_build_target $PACKAGE))
   done
-  banner "Publishing packages ..."
-  run_local_pants setup-py --run="register sdist upload --sign --identity=$(get_pgp_keyid)" \
-    --recursive ${targets[@]} || \
-  die "Failed to publish packages!"
+  start_travis_section "Publishing" "Publishing packages"
+  run_local_pants setup-py --run="sdist upload --sign --identity=$(get_pgp_keyid)" \
+    --recursive ${targets[@]} || die "Failed to publish packages!"
+  end_travis_section
 }
 
 function pre_install() {
+  start_travis_section "SetupVenv" "Setting up virtualenv"
   VENV_DIR=$(mktemp -d -t pants.XXXXX) && \
   ${ROOT}/build-support/virtualenv $VENV_DIR && \
   source $VENV_DIR/bin/activate
+  end_travis_section
 }
 
 function post_install() {
@@ -179,10 +186,10 @@ function install_and_test_packages() {
     NAME=$(pkg_name $PACKAGE)
     INSTALL_TEST_FUNC=$(pkg_install_test_func $PACKAGE)
 
-    banner "Installing and testing package ${NAME}-$(local_version) ..."
-
+    start_travis_section "${NAME}" "Installing and testing package ${NAME}-$(local_version)"
     eval $INSTALL_TEST_FUNC ${PIP_ARGS[@]} || \
-    die "Failed to install and test package ${NAME}-$(local_version)!"
+      die "Failed to install and test package ${NAME}-$(local_version)!"
+    end_travis_section
   done
 
   post_install || die "Failed to deactivate virtual env while testing ${NAME}-$(local_version)!"
@@ -221,11 +228,15 @@ EOM
   die "$msg"
 }
 
+function get_branch() {
+  git branch | grep -E '^\* ' | cut -d' ' -f2-
+}
+
 function check_clean_branch() {
   banner "Checking for a clean branch"
 
   pattern="^(master)|([0-9]+\.[0-9]+\.x)$"
-  branch=$(git branch | grep -E '^\* ' | cut -d' ' -f2-)
+  branch=$(get_branch)
   [[ -z "$(git status --porcelain)" &&
      $branch =~ $pattern
   ]] || die "You are not on a clean branch."
@@ -296,15 +307,20 @@ EOF
 function tag_release() {
   release_version="$(local_version)" && \
   tag_name="release_${release_version}" && \
-  git tag \
+  git tag -f \
     --local-user=$(get_pgp_keyid) \
     -m "pantsbuild.pants release ${release_version}" \
     ${tag_name} && \
-  git push git@github.com:pantsbuild/pants.git ${tag_name}
+  git push -f git@github.com:pantsbuild/pants.git ${tag_name}
 }
 
-function publish_docs() {
-  ${ROOT}/build-support/bin/publish_docs.sh -p -y
+function publish_docs_if_master() {
+  branch=$(get_branch)
+  if [[ "${branch}" == "master" ]]; then
+    ${ROOT}/build-support/bin/publish_docs.sh -p -y
+  else
+    echo "Skipping docsite publishing on non-master branch (${branch})."
+  fi
 }
 
 function list_packages() {
@@ -327,7 +343,7 @@ function get_owners() {
 
   latest_package_path=$(
     curl -s https://pypi.python.org/pypi/${package_name} | \
-        grep -oE  "/pypi/${package_name}/[0-9]+\.[0-9]+\.[0-9]+(-(rc|pre)[0-9]+)?" | head -n1
+        grep -oE  "/pypi/${package_name}/[0-9]+\.[0-9]+\.[0-9]+([-.]?(rc|dev)[0-9]+)?" | head -n1
   )
   curl -s "https://pypi.python.org${latest_package_path}" | \
     grep -A1 "Owner" | tail -1 | \
@@ -360,7 +376,10 @@ function check_owner() {
 
    for owner in $(get_owners ${package_name})
    do
-     if [[ "${username}" == "${owner}" ]]
+     # NB: A case-insensitive comparison is done since pypi is case-insensitive wrt usernames.
+     # Note that the ^^ case operator requires bash 4.  If you're on a Mac you may need to brew
+     # install bash, as the version that comes with MacOS is ancient.
+     if [[ "${username^^}" == "${owner^^}" ]]
      then
        return 0
      fi
@@ -372,14 +391,14 @@ function check_owners() {
   username="$(check_pypi)"
 
   total=${#RELEASE_PACKAGES[@]}
-  banner "Checking package ownership for pypi user ${username} of ${total} packages ..."
+  banner "Checking package ownership for pypi user ${username} of ${total} packages"
   dont_own=()
   index=0
   for PACKAGE in "${RELEASE_PACKAGES[@]}"
   do
     index=$((index+1))
     package_name="$(pkg_name $PACKAGE)"
-    banner "[${index}/${total}] checking that ${username} owns ${package_name}..."
+    banner "[${index}/${total}] checking that ${username} owns ${package_name}"
     if package_exists ${package_name}
     then
       if ! check_owner "${username}" "${package_name}"
@@ -403,12 +422,63 @@ EOM
   fi
 }
 
+# Indirectly defines:
+# + RUST_OSX_MIN_VERSION: The minimum minor version of OSX supported by Rust; eg 7 for OSX 10.7.
+# + OSX_MAX_VERSION: The current latest OSX minor version; eg 12 for OSX Sierra 10.12.
+# + LIB_EXTENSION: The extension of native libraries.
+# + KERNEL: The lower-cased name of the kernel as reported by uname.
+# + OS_NAME: The name of the OS as seen by pants.
+# + OS_ID: The ID of the current OS as seen by pants.
+# Indirectly exposes:
+# + get_native_engine_version: Echoes the current native engine version.
+# + get_rust_osx_versions: Produces the osx minor versions supported by Rust one per line.
+# + get_rust_osx_ids: Produces the BinaryUtil osx os id paths supported by rust, one per line.
+# + get_rust_os_ids: Produces the BinaryUtil os id paths supported by rust, one per line.
+# Defines:
+# + CACHE_ROOT: The pants cache root dir.
+# + NATIVE_ENGINE_CACHE_DIR: The native engine binary root cache directory.
+# + NATIVE_ENGINE_CACHE_TARGET_DIR: The directory containing all versions of the native engine for
+#                                   the current OS.
+# + NATIVE_ENGINE_BINARY: The basename of the native engine binary for the current OS.
+# + NATIVE_ENGINE_VERSION_RESOURCE: The path of the resource file containing the native engine
+#                                   version hash.
+# Exposes:
+# + calculate_current_hash: Calculates the current native engine version hash and echoes it to
+#                           stdout.
+# + bootstrap_native_code: Builds target-specific native engine binaries.
+source ${ROOT}/build-support/bin/native/bootstrap.sh
+
+readonly BINARY_BASE_URL=https://binaries.pantsbuild.org
+readonly NATIVE_ENGINE_BASE_URL=${BINARY_BASE_URL}/bin/native-engine
+
+function check_native_engine() {
+  local readonly native_engine_version=${NATIVE_ENGINE_VERSION:-$(get_native_engine_version)}
+  banner "Checking for native engine release version ${native_engine_version}"
+
+  local readonly headers=$(mktemp -t pants-release.XXXXXX)
+  local result=0
+  for os_id in $(get_rust_os_ids)
+  do
+    local url=${NATIVE_ENGINE_BASE_URL}/${os_id}/${native_engine_version}/${NATIVE_ENGINE_BINARY}
+    echo -n "  for ${os_id} -> ${url}... "
+    curl --progress-bar --fail --head ${url} &> ${headers} && echo OK || {
+      result=$(( ${result} + 1 )) && echo FAILURE && cat ${headers} && echo
+    }
+  done
+  rm -f ${headers}
+
+  if (( ${result} != 0 ))
+  then
+    die "Failed to find ${result} releases of native engine version ${native_engine_version}"
+  fi
+}
+
 function usage() {
   echo "With no options all packages are built, smoke tested and published to"
   echo "PyPi.  Credentials are needed for this as described in the"
-  echo "release docs: http://pantsbuild.github.io/release.html"
+  echo "release docs: http://pantsbuild.org/release.html"
   echo
-  echo "Usage: $0 [-d] (-h|-n|-t|-l|-o)"
+  echo "Usage: $0 [-d] (-h|-n|-t|-l|-o|-e)"
   echo " -d  Enables debug mode (verbose output, script pauses after venv creation)"
   echo " -h  Prints out this help message."
   echo " -n  Performs a release dry run."
@@ -420,6 +490,7 @@ function usage() {
   echo "       and can be installed in an ephemeral virtualenv."
   echo " -l  Lists all pantsbuild packages that this script releases."
   echo " -o  Lists all pantsbuild package owners."
+  echo " -e  Check that native engine binaries are deployed for this release."
   echo
   echo "All options (except for '-d') are mutually exclusive."
 
@@ -430,7 +501,7 @@ function usage() {
   fi
 }
 
-while getopts "hdntlo" opt; do
+while getopts "hdntloe" opt; do
   case ${opt} in
     h) usage ;;
     d) debug="true" ;;
@@ -438,6 +509,7 @@ while getopts "hdntlo" opt; do
     t) test_release="true" ;;
     l) list_packages && exit 0 ;;
     o) list_owners && exit 0 ;;
+    e) check_native_engine && exit 0 ;;
     *) usage "Invalid option: -${OPTARG}" ;;
   esac
 done
@@ -450,22 +522,22 @@ fi
 if [[ "${dry_run}" == "true" && "${test_release}" == "true" ]]; then
   usage "The dry run and test options are mutually exclusive, pick one."
 elif [[ "${dry_run}" == "true" ]]; then
-  banner "Performing a dry run release - no artifacts will be uploaded." && \
+  banner "Performing a dry run release" && \
   (
     dry_run_install && \
-    banner "Dry run release succeeded."
+    banner "Dry run release succeeded"
   ) || die "Dry run release failed."
 elif [[ "${test_release}" == "true" ]]; then
-  banner "Installing and testing the latest released packages." && \
+  banner "Installing and testing the latest released packages" && \
   (
     install_and_test_packages && \
-    banner "Successfully installed and tested the latest released packages."
+    banner "Successfully installed and tested the latest released packages"
   ) || die "Failed to install and test the latest released packages."
 else
-  banner "Releasing packages to PyPi." && \
+  banner "Releasing packages to PyPi" && \
   (
-    check_origin && check_clean_branch && check_pgp && check_owners && \
-      dry_run_install && publish_packages && tag_release && publish_docs && \
-      banner "Successfully released packages to PyPi."
+    check_origin && check_clean_branch && check_pgp && check_native_engine && check_owners && \
+      dry_run_install && publish_packages && tag_release && publish_docs_if_master && \
+      banner "Successfully released packages to PyPi"
   ) || die "Failed to release packages to PyPi."
 fi

@@ -15,7 +15,7 @@ import static org.junit.Assert.assertTrue;
  * For all methods in ParallelTest1 and ParallelTest2
  * to succeed, both test classes  must be running at the same time. Intended to test the flags
  * <pre>
- * -default-parallel -parallel-threads 2
+ * -default-concurrency PARALLEL_CLASSES -parallel-threads 2
  * </pre>
  * when running with just these two classes as specs.
  * <p>
@@ -27,6 +27,10 @@ public class ParallelTest1 {
   private static final int NUM_CONCURRENT_TESTS = 2;
   private static final int RETRY_TIMEOUT_MS = 3000;
   private static CountDownLatch latch = new CountDownLatch(NUM_CONCURRENT_TESTS);
+
+  public static void reset() {
+    latch = new CountDownLatch(NUM_CONCURRENT_TESTS);
+  }
 
   @Test
   public void ptest1() throws Exception {

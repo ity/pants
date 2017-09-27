@@ -35,8 +35,15 @@ class Goal(object):
     register tasks on.
 
     :API: public
+
+    :param string name: The name of the goal; ie: the way to specify it on the command line.
+    :param string description: A description of the tasks in the goal do.
+    :return: The freshly registered goal.
+    :rtype: :class:`_Goal`
     """
-    cls.by_name(name)._description = description
+    goal = cls.by_name(name)
+    goal._description = description
+    return goal
 
   @classmethod
   def by_name(cls, name):
@@ -68,11 +75,11 @@ class Goal(object):
 
   @staticmethod
   def all():
-    """Returns all registered goals, sorted alphabetically by name.
+    """Returns all active registered goals, sorted alphabetically by name.
 
     :API: public
     """
-    return [pair[1] for pair in sorted(Goal._goal_by_name.items())]
+    return [goal for _, goal in sorted(Goal._goal_by_name.items()) if goal.active]
 
   @classmethod
   def subsystems(cls):
@@ -134,6 +141,11 @@ class _Goal(object):
       raise GoalError('Can only specify one of first, replace, before or after')
 
     task_name = task_registrar.name
+    if task_name in self._task_type_by_name:
+      raise GoalError(
+        'Can only specify a task name once per goal, saw multiple values for {} in goal {}'.format(
+          task_name,
+          self.name))
     Optionable.validate_scope_name_component(task_name)
     options_scope = Goal.scope(self.name, task_name)
 
@@ -231,6 +243,16 @@ class _Goal(object):
       if issubclass(task_type, typ):
         return True
     return False
+
+  @property
+  def active(self):
+    """Return `True` if this goal has tasks installed.
+
+    Some goals are installed in pants core without associated tasks in anticipation of plugins
+    providing tasks that implement the goal being installed. If no such plugins are installed, the
+    goal may be inactive in the repo.
+    """
+    return len(self._task_type_by_name) > 0
 
   def __repr__(self):
     return self.name

@@ -105,22 +105,22 @@ class PantsReleases(Subsystem):
   def _branch_name(cls, version):
     """Defines a mapping between versions and branches.
 
-    In particular, `-pre` suffixed releases always live on master. Any other (modern) release
+    In particular, `-dev` suffixed releases always live on master. Any other (modern) release
     lives in a branch.
     """
-    components = version.components
-    suffix = components[3]
-    if suffix is None or suffix.startswith('rc'):
+    suffix = version.public[len(version.base_version):]
+    components = version.base_version.split('.') + [suffix]
+    if suffix == '' or suffix.startswith('rc'):
       # An un-suffixed, or suffixed-with-rc version is a release from a stable branch.
       return '{}.{}.x'.format(*components[:2])
-    elif suffix.startswith('pre'):
-      # Suffixed `pre` release version in master.
+    elif suffix.startswith('.dev'):
+      # Suffixed `dev` release version in master.
       return 'master'
     else:
       raise ValueError('Unparseable pants version number: {}'.format(version))
 
   def notes_for_version(self, version):
-    """Given the parsed Revision of pants, return its release notes.
+    """Given the parsed Version of pants, return its release notes.
 
     TODO: This method should parse out the specific version from the resulting file:
       see https://github.com/pantsbuild/pants/issues/1708

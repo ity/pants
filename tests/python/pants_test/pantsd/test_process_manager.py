@@ -7,6 +7,7 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
 
 import errno
 import os
+import sys
 from contextlib import contextmanager
 
 import mock
@@ -16,6 +17,7 @@ from pants.pantsd.process_manager import (ProcessGroup, ProcessManager, ProcessM
                                           swallow_psutil_exceptions)
 from pants.util.contextutil import temporary_dir
 from pants.util.dirutil import safe_file_dump
+from pants.util.process_handler import subprocess
 from pants_test.base_test import BaseTest
 
 
@@ -42,6 +44,39 @@ class TestProcessGroup(BaseTest):
       mock_process_iter.return_value = [5, 4, 3, 2, 1]
       items = [item for item in self.pg.iter_processes()]
       self.assertEqual(items, [5, 4, 3, 2, 1])
+
+  def test_iter_processes_filter_raises_psutil_exception(self):
+    """If the filter triggers a psutil exception, skip the proc and continue."""
+    with mock.patch('psutil.process_iter', **PATCH_OPTS) as mock_process_iter:
+      def noop():
+        return True
+      def raises():
+        raise psutil.NoSuchProcess('a_test')
+
+      mock_process_iter.return_value = [
+        noop,
+        raises,
+        noop
+      ]
+
+      items = [item for item in self.pg.iter_processes(proc_filter=lambda p: p())]
+      self.assertEqual([noop, noop], items)
+
+  def test_iter_processes_process_iter_raises_psutil_exception(self):
+    """If psutil.process_iter raises the exception, silently stop iteration."""
+    def id_or_raise(o):
+      if isinstance(o, Exception):
+        raise o
+      else:
+        return o
+    with mock.patch('psutil.process_iter', **PATCH_OPTS) as mock_process_iter:
+      mock_process_iter.return_value= (id_or_raise(i)
+                                       for i in ['first',
+                                                 psutil.NoSuchProcess('The Exception'),
+                                                 'never seen'])
+
+      items = [item for item in self.pg.iter_processes()]
+      self.assertEqual(['first'], items)
 
   def test_iter_processes_filtered(self):
     with mock.patch('psutil.process_iter', **PATCH_OPTS) as mock_process_iter:
@@ -175,6 +210,14 @@ class TestProcessManager(BaseTest):
   def test_get_subprocess_output(self):
     test_str = '333'
     self.assertEqual(self.pm.get_subprocess_output(['echo', '-n', test_str]), test_str)
+
+  def test_get_subprocess_output_interleaved(self):
+    cmd_payload = 'import sys; ' + 'sys.stderr.write("9"); sys.stdout.write("3"); ' * 3
+    cmd = [sys.executable, '-c', cmd_payload]
+
+    self.assertEqual(self.pm.get_subprocess_output(cmd), '333')
+    self.assertEqual(self.pm.get_subprocess_output(cmd, ignore_stderr=False), '939393')
+    self.assertEqual(self.pm.get_subprocess_output(cmd, stderr=subprocess.STDOUT), '939393')
 
   def test_get_subprocess_output_oserror_exception(self):
     with self.assertRaises(self.pm.ExecutionError):

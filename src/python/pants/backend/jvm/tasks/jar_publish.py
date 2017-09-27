@@ -165,7 +165,7 @@ class PomWriter(object):
     if target_jar:
       target_jar = target_jar.extend(dependencies=dependencies.values())
 
-    template_relpath = os.path.join(_TEMPLATES_RELPATH, 'pom.mustache')
+    template_relpath = os.path.join(_TEMPLATES_RELPATH, 'pom.xml.mustache')
     template_text = pkgutil.get_data(__name__, template_relpath)
     generator = Generator(template_text, project=target_jar)
     with safe_open(path, 'w') as output:
@@ -340,10 +340,10 @@ class JarPublish(ScmPublishMixin, JarTask):
              help='Specify a custom ivysettings.xml file to be used when publishing.')
     register('--repos', advanced=True, type=dict,
              help='Settings for repositories that can be pushed to. See '
-                  'https://pantsbuild.github.io/publish.html for details.')
+                  'https://pantsbuild.org/publish.html for details.')
     register('--publish-extras', advanced=True, type=dict,
              help='Extra products to publish. See '
-                  'https://pantsbuild.github.io/dev_tasks_publish_extras.html for details.')
+                  'https://pantsbuild.org/dev_tasks_publish_extras.html for details.')
     register('--individual-plugins', advanced=True, type=bool,
              help='Extra products to publish as a individual artifact.')
     register('--push-postscript', advanced=True, default=None,
@@ -367,7 +367,6 @@ class JarPublish(ScmPublishMixin, JarTask):
 
     self._jvm_options = self.get_options().jvm_options
 
-    self.scm = get_scm()
     self.log = self.context.log
 
     if self.get_options().local:
@@ -385,7 +384,7 @@ class JarPublish(ScmPublishMixin, JarTask):
       if not self.repos:
         raise TaskError(
           "This repo is not configured to publish externally! Please configure per\n"
-          "http://pantsbuild.github.io/publish.html#authenticating-to-the-artifact-repository,\n"
+          "http://pantsbuild.org/publish.html#authenticating-to-the-artifact-repository,\n"
           "by setting --publish-jar-repos=<dict> or re-run with '--publish-jar-local=<dir>'.")
       for repo, data in self.repos.items():
         auth = data.get('auth')
@@ -400,6 +399,8 @@ class JarPublish(ScmPublishMixin, JarTask):
       self.push_postscript = self.get_options().push_postscript or ''
       self.local_snapshot = False
 
+    self.scm = get_scm() if self.commit else None
+
     self.named_snapshot = self.get_options().named_snapshot
     if self.named_snapshot:
       self.named_snapshot = Namedver.parse(self.named_snapshot)
@@ -407,7 +408,7 @@ class JarPublish(ScmPublishMixin, JarTask):
     self.dryrun = self.get_options().dryrun
     self.transitive = self.get_options().transitive
     self.force = self.get_options().force
-    self.publish_changelog = self.get_options().changelog
+    self.publish_changelog = self.get_options().changelog and self.scm
 
     def parse_jarcoordinate(coordinate):
       components = coordinate.split('#', 1)
@@ -674,7 +675,7 @@ class JarPublish(ScmPublishMixin, JarTask):
       for (org, name), rev in self.overrides.items():
         print('{0}={1}'.format(coordinate(org, name), rev))
 
-    head_sha = self.scm.commit_id
+    head_sha = self.scm.commit_id if self.scm else None
 
     safe_rmtree(self.workdir)
     published = []
@@ -906,7 +907,7 @@ class JarPublish(ScmPublishMixin, JarTask):
       return ivy.ivy_settings
 
   def generate_ivysettings(self, ivy, publishedjars, publish_local=None):
-    template_relpath = os.path.join(_TEMPLATES_RELPATH, 'ivysettings.mustache')
+    template_relpath = os.path.join(_TEMPLATES_RELPATH, 'ivysettings.xml.mustache')
     template_text = pkgutil.get_data(__name__, template_relpath)
 
     published = [TemplateData(org=jar.org, name=jar.name) for jar in publishedjars]
@@ -923,7 +924,7 @@ class JarPublish(ScmPublishMixin, JarTask):
       return wrapper.name
 
   def generate_ivy(self, jar, version, publications):
-    template_relpath = os.path.join(_TEMPLATES_RELPATH, 'ivy.mustache')
+    template_relpath = os.path.join(_TEMPLATES_RELPATH, 'ivy.xml.mustache')
     template_text = pkgutil.get_data(__name__, template_relpath)
 
     pubs = [TemplateData(name=None if p.name == jar.name else p.name,

@@ -2,58 +2,12 @@
 # Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 python_tests(
-  name = 'exiter',
-  sources = ['test_exiter.py'],
-  dependencies = [
-    'src/python/pants/bin',
-    'src/python/pants/util:contextutil',
-    'tests/python/pants_test/option:testing',
-  ],
-)
-
-python_tests(
-  name='exe_integration',
-  sources=['test_exe_integration.py'],
+  name='loader_integration',
+  sources=['test_loader_integration.py'],
   dependencies=[
     'tests/python/pants_test:int-test',
   ],
   tags = {'integration'},
-)
-
-python_tests(
-  name = 'extension_loader',
-  sources = ['test_extension_loader.py'],
-  dependencies = [
-    'src/python/pants/base:exceptions',
-    'src/python/pants/build_graph',
-    'src/python/pants/goal',
-    'src/python/pants/goal:task_registrar',
-    'src/python/pants/subsystem',
-  ]
-)
-
-python_tests(
-  name='options_initializer',
-  sources=['test_options_initializer.py'],
-  dependencies=[
-    '3rdparty/python:setuptools',
-    'src/python/pants/base:exceptions',
-    'src/python/pants/bin',
-    'src/python/pants/option',
-  ]
-)
-
-python_tests(
-  name='plugin_resolver',
-  sources=['test_plugin_resolver.py'],
-  dependencies=[
-    '3rdparty/python:pex',
-    '3rdparty/python:setuptools',
-    'src/python/pants/bin',
-    'src/python/pants/option',
-    'src/python/pants/util:contextutil',
-    'src/python/pants/util:dirutil',
-  ]
 )
 
 python_tests(

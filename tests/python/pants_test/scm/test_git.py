@@ -6,7 +6,6 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
                         unicode_literals, with_statement)
 
 import os
-import subprocess
 import types
 import unittest
 from contextlib import contextmanager
@@ -17,6 +16,7 @@ from pants.scm.git import Git
 from pants.scm.scm import Scm
 from pants.util.contextutil import environment_as, pushd, temporary_dir
 from pants.util.dirutil import chmod_plus_x, safe_mkdir, safe_mkdtemp, safe_open, safe_rmtree, touch
+from pants.util.process_handler import subprocess
 from pants_test.testutils.git_util import MIN_REQUIRED_GIT_VERSION, git_version
 
 
@@ -116,7 +116,7 @@ class GitTest(unittest.TestCase):
                         sorted(results))
 
     for dirname in 'dir', './dir':
-      results = reader.listdir('dir')
+      results = reader.listdir(dirname)
       self.assertEquals(['f',
                          'not-absolute\u2764'.encode('utf-8'),
                          'relative-dotdot',
@@ -248,7 +248,7 @@ class GitTest(unittest.TestCase):
     self.assertEqual({'README'}, self.git.changed_files())
     self.assertEqual({'README', 'INSTALL'}, self.git.changed_files(include_untracked=True))
 
-    # confirm that files outside of a given relative_to path are ignored
+    # Confirm that files outside of a given relative_to path are ignored
     self.assertEqual(set(), self.git.changed_files(relative_to='non-existent'))
 
     self.git.commit('API Changes.')
@@ -412,9 +412,14 @@ class GitTest(unittest.TestCase):
       # Mix in a non-UTF-8 author to all commits to exercise the corner described here does not
       # adversely impact the ability to render the changelog (even if rendering for certain
       # characters is incorrect): http://comments.gmane.org/gmane.comp.version-control.git/262685
+      # NB: This method of override requires we include `user.name` and `user.email` even though we
+      # only use `user.name` to exercise non-UTF-8.  Without `user.email`, it will be unset and
+      # commits can then fail on machines without a proper hostname setup for git to fall back to
+      # when concocting a last-ditch `user.email`.
       non_utf8_config = dedent("""
       [user]
         name = Noralf Trønnes
+        email = noralf@example.com
       """).encode('iso-8859-1')
 
       with open(os.path.join(self.gitdir, 'config'), 'wb') as fp:

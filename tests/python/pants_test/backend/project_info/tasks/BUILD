@@ -13,6 +13,7 @@ python_tests(
   name = 'dependencies',
   sources = ['test_dependencies.py'],
   dependencies = [
+    'src/python/pants/java/jar',
     'src/python/pants/backend/jvm/targets:java',
     'src/python/pants/backend/jvm/targets:jvm',
     'src/python/pants/backend/project_info/tasks:dependencies',
@@ -60,6 +61,9 @@ python_tests(
   name = 'export',
   sources = ['test_export.py'],
   dependencies = [
+    'src/python/pants/java/jar',
+    'src/python/pants/backend/jvm/subsystems:junit',
+    'src/python/pants/backend/jvm/subsystems:jvm_platform',
     'src/python/pants/backend/jvm/subsystems:scala_platform',
     'src/python/pants/backend/jvm/targets:java',
     'src/python/pants/backend/jvm/targets:jvm',
@@ -84,12 +88,14 @@ python_tests(
   name = 'export_integration',
   sources = ['test_export_integration.py'],
   dependencies = [
-    ':resolve_jars_test_mixin',
     '3rdparty/python/twitter/commons:twitter.common.collections',
+    ':resolve_jars_test_mixin',
     'src/python/pants/base:build_environment',
+    'src/python/pants/build_graph',
     'src/python/pants/ivy',
     'src/python/pants/java/distribution',
     'src/python/pants/util:contextutil',
+    'src/python/pants/util:process_handler',
     'tests/python/pants_test/subsystem:subsystem_utils',
     'tests/python/pants_test:int-test',
   ],
@@ -117,7 +123,6 @@ python_tests(
     'src/python/pants/backend/project_info/tasks:ide_gen',
     'src/python/pants/source',
     'tests/python/pants_test:base_test',
-    'tests/python/pants_test/subsystem:subsystem_utils',
   ]
 )
 
@@ -131,12 +136,14 @@ python_tests(
     'tests/python/pants_test:int-test',
   ],
   tags = {'integration'},
+  timeout = 300,
 )
 
 python_tests(
   name = 'idea_plugin_integration',
   sources = ['test_idea_plugin_integration.py'],
   dependencies = [
+    'src/python/pants/backend/project_info/tasks:idea_plugin_gen',
     'tests/python/pants_test:int-test',
   ],
   tags = {'integration'},
