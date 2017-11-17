@@ -330,8 +330,10 @@ impl Select {
   }
 }
 
-// TODO: This is a Node only because it is used as a root in the graph, but it should never be
-// requested using context.get
+///
+/// TODO: This is a Node only because it is used as a root in the graph, but it should never be
+/// requested using context.get
+///
 impl Node for Select {
   type Output = Value;
 
