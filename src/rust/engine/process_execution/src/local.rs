@@ -12,12 +12,12 @@ use super::{ExecuteProcessRequest, ExecuteProcessResult};
 ///
 pub fn run_command_locally(
   req: ExecuteProcessRequest,
-  dir: &Path,
+  workdir: &Path,
 ) -> Result<ExecuteProcessResult, Error> {
-  println!("executing in dir: {:?}", &dir);
+  println!("executing in workdir: {:?}", &workdir);
   Command::new(&req.argv[0])
     .args(&req.argv[1..])
-    .current_dir(dir)
+    .current_dir(workdir)
     .env_clear()
     // It would be really nice not to have to manually set PATH but this is sadly the only way
     // to stop automatic PATH searching.
@@ -31,11 +31,13 @@ pub fn run_command_locally(
     })
 }
 
+
 //#[cfg(test)]
 //mod tests {
 //  extern crate testutil;
 //
 //  use super::{ExecuteProcessRequest, ExecuteProcessResult, run_command_locally};
+//  use fs;
 //  use std::collections::BTreeMap;
 //  use self::testutil::{owned_string_vec, as_byte_owned_vec};
 //
@@ -45,7 +47,8 @@ pub fn run_command_locally(
 //    let result = run_command_locally(ExecuteProcessRequest {
 //      argv: owned_string_vec(&["/bin/echo", "-n", "foo"]),
 //      env: BTreeMap::new(),
-//    }, TempDir());
+//      input_files: fs::Snapshot::empty(),
+//    }, );
 //
 //    assert_eq!(
 //      result.unwrap(),
@@ -65,7 +68,8 @@ pub fn run_command_locally(
 //        &["/bin/bash", "-c", "echo -n foo ; echo >&2 -n bar ; exit 1"],
 //      ),
 //      env: BTreeMap::new(),
-//    }, TempDir());
+//      input_files: fs::Snapshot::empty(),
+//    });
 //
 //    assert_eq!(
 //      result.unwrap(),
@@ -87,7 +91,8 @@ pub fn run_command_locally(
 //    let result = run_command_locally(ExecuteProcessRequest {
 //      argv: owned_string_vec(&["/usr/bin/env"]),
 //      env: env.clone(),
-//    }, TempDir);
+//      input_files: fs::Snapshot::empty(),
+//    });
 //
 //    let stdout = String::from_utf8(result.unwrap().stdout).unwrap();
 //    let got_env: BTreeMap<String, String> = stdout
@@ -117,11 +122,12 @@ pub fn run_command_locally(
 //      ExecuteProcessRequest {
 //        argv: owned_string_vec(&["/usr/bin/env"]),
 //        env: env,
+//        input_files: fs::Snapshot::empty(),
 //      }
 //    }
 //
-//    let result1 = run_command_locally(make_request(), TempDir());
-//    let result2 = run_command_locally(make_request(), TempDir());
+//    let result1 = run_command_locally(make_request());
+//    let result2 = run_command_locally(make_request());
 //
 //    assert_eq!(result1.unwrap(), result2.unwrap());
 //  }
@@ -131,6 +137,7 @@ pub fn run_command_locally(
 //    run_command_locally(ExecuteProcessRequest {
 //      argv: owned_string_vec(&["echo", "-n", "foo"]),
 //      env: BTreeMap::new(),
-//    }, TempDir()).expect_err("Want Err");
+//      input_files: fs::Snapshot::empty(),
+//    }).expect_err("Want Err");
 //  }
 //}

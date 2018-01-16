@@ -1,4 +1,5 @@
 extern crate clap;
+extern crate fs;
 extern crate process_execution;
 
 use clap::{App, AppSettings, Arg};
@@ -57,7 +58,12 @@ If unspecified, local execution will be performed.",
     .collect();
   let server = args.value_of("server");
 
-  let request = process_execution::ExecuteProcessRequest { argv, env };
+  let input_files = fs::Snapshot::empty();
+  let request = process_execution::ExecuteProcessRequest {
+    argv,
+    env,
+    input_files,
+  };
   let result = match server {
     Some(addr) => process_execution::remote::run_command_remote(addr, request).unwrap(),
     None => process_execution::local::run_command_locally(request).unwrap(),

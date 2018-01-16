@@ -2,6 +2,7 @@ extern crate bazel_protos;
 #[cfg(test)]
 extern crate bytes;
 extern crate digest;
+extern crate fs;
 extern crate grpcio;
 #[cfg(test)]
 extern crate mock;
@@ -36,6 +37,8 @@ pub struct ExecuteProcessRequest {
   /// No other environment variables will be set (except possibly for an empty PATH variable).
   ///
   pub env: BTreeMap<String, String>,
+
+  pub input_files: fs::Snapshot,
 }
 
 ///

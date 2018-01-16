@@ -6,6 +6,7 @@ authors = [ "Pants Build <pantsbuild@gmail.com>" ]
 [dependencies]
 bazel_protos = { path = "bazel_protos" }
 digest = "0.6.2"
+fs = { path = "../fs" }
 grpcio = { version = "0.2.0", features = ["secure"] }
 protobuf = { version = "1.4.1", features = ["with-bytes"] }
 sha2 = "0.6.0"

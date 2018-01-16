@@ -8,7 +8,7 @@ use boxfuture::{Boxable, BoxFuture};
 use bytes::Bytes;
 use futures::Future;
 use futures::future::join_all;
-use hashing::Digest;
+use hashing::{Digest, Fingerprint};
 use itertools::Itertools;
 use {File, FileContent, Path, PathStat, Store};
 use protobuf;
@@ -19,7 +19,45 @@ use std::sync::{Arc, Mutex};
 use tempdir::TempDir;
 use std::{fmt, fs};
 
-#[derive(Clone, PartialEq)]
+const EMPTY_FINGERPRINT: Fingerprint = Fingerprint(
+  [
+    0xe3,
+    0xb0,
+    0xc4,
+    0x42,
+    0x98,
+    0xfc,
+    0x1c,
+    0x14,
+    0x9a,
+    0xfb,
+    0xf4,
+    0xc8,
+    0x99,
+    0x6f,
+    0xb9,
+    0x24,
+    0x27,
+    0xae,
+    0x41,
+    0xe4,
+    0x64,
+    0x9b,
+    0x93,
+    0x4c,
+    0xa4,
+    0x95,
+    0x99,
+    0x1b,
+    0x78,
+    0x52,
+    0xb8,
+    0x55,
+  ],
+);
+const EMPTY_DIGEST: Digest = Digest(EMPTY_FINGERPRINT, 0);
+
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct Snapshot {
   pub digest: Digest,
   pub path_stats: Vec<PathStat>,
@@ -34,6 +72,13 @@ pub trait StoreFileByDigest<Error> {
 }
 
 impl Snapshot {
+  pub fn empty() -> Snapshot {
+    Snapshot {
+      digest: EMPTY_DIGEST,
+      path_stats: vec![],
+    }
+  }
+
   pub fn from_path_stats<
     SFBD: StoreFileByDigest<Error> + Sized + Clone,
     Error: fmt::Debug + 'static + Send,

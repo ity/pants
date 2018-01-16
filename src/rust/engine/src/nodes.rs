@@ -312,6 +312,7 @@ impl Select {
       let request = process_executor::ExecuteProcessRequest {
         argv: externs::project_multi_strs(&value, "argv"),
         env: env,
+        input_files: fs::Snapshot::empty(),
       };
       println!("{:?}", &request);
       //let t = self.get_snapshot(&context)?;
