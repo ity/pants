@@ -210,6 +210,9 @@ class ExecuteProcessRequest(datatype('ExecuteProcessRequest', ['argv', 'env'])):
     :param args: Arguments to the process being run.
     :param env: A tuple of environment variables and values.
     """
+    print('*'*10)
+    print(argv)
+    print(env)
     if not isinstance(argv, tuple):
       raise ValueError('argv must be a tuple.')
     return super(ExecuteProcessRequest, cls).__new__(cls, argv, tuple(env))

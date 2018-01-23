@@ -90,6 +90,13 @@ def process_request_from_java_sources(binary):
     argv=binary.prefix_of_command() + ('-version',),
     env=env)
 
+def process_request_java_args_from_java_sources(binary, sources_snapshot, out_dir):
+  env = []
+  return ExecuteProcessRequest(
+    argv=binary.prefix_of_command() +
+         ('-d', out_dir.path) +
+         tuple(f.path for f in sources_snapshot.files),
+    env=env)
 
 class ClasspathEntry(datatype('ClasspathEntry', ['path'])):
   """A classpath entry for a subject."""
@@ -186,18 +193,15 @@ class IsolatedProcessTest(SchedulerTestBase, unittest.TestCase):
     sources = PathGlobs.create('', include=['scheduler_inputs/src/java/simple/Simple.java'])
 
     scheduler = self.mk_scheduler_in_example_fs([
-      SnapshottedProcess.create(ClasspathEntry,
-        Javac,
-        (Select(Snapshot), Select(JavaOutputDir)),
-        java_sources_to_javac_args,
-        process_result_to_classpath_entry),
+      ExecuteProcess.create_in(
+        product_type=ExecuteProcessRequest,
+        input_selectors=(Select(Javac), Select(Snapshot), Select(JavaOutputDir)),
+        input_conversion=process_request_java_args_from_java_sources),
       SingletonRule(JavaOutputDir, JavaOutputDir('build')),
       SingletonRule(Javac, Javac()),
     ])
-
-    request = scheduler.execution_request(
-      [ClasspathEntry],
-      [sources])
+    req = scheduler.product_request(ExecuteProcessRequest, [sources])
+    request = scheduler.execution_request([ExecuteProcessResult], req)
     root_entries = scheduler.execute(request).root_products
 
     self.assertEquals(1, len(root_entries))
