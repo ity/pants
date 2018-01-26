@@ -193,7 +193,7 @@ class IsolatedProcessTest(SchedulerTestBase, unittest.TestCase):
 
 
   def test_javac_compilation_example_rust(self):
-    sources = PathGlobs.create('', include=['scheduler_inputs/src/java/simple/Simple.java'])
+    sources = PathGlobs.create('', include=['inputs/src/java/simple/Simple.java'])
 
     scheduler = self.mk_scheduler_in_example_fs([
       ExecuteProcess.create_in(

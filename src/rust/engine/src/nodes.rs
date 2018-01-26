@@ -313,17 +313,18 @@ impl Select {
         argv: externs::project_multi_strs(&value, "argv"),
         env: env,
       };
+      println!("{:?}", &request);
       //let t = self.get_snapshot(&context)?;
       println!("trying to compute");
       let tmpdir = TempDir::new("testing").unwrap();
-      println!("computed tmpdir, {:?}", &tmpdir);
+      println!("computed tmpdir, {:?}", &tmpdir.path());
       //print!("{:?}", tmpdir.path());
       //print!("{:?}", &t);
       //let tmpdir = t.safe_create_tmpdir_in("root", "tmp")?;
       //print!("{0}", tmpdir);
       // TODO: this should run off-thread, and asynchronously
       // TODO: request the Node that invokes the process, rather than invoke directly
-      let result = process_executor::local::run_command_locally(request).unwrap();
+      let result = process_executor::local::run_command_locally(request, tmpdir.path()).unwrap();
       vec![
         future::ok(externs::invoke_unsafe(
           &context.core.types.construct_process_result,
@@ -779,12 +780,13 @@ impl Node for ExecuteProcess {
 
   fn run(self, _: Context) -> NodeFuture<ProcessResult> {
     let request = self.0.clone();
-    print!("this is");
-    //let tmpdir = TempDir::new("root").unwrap();
+    let tmpdir = TempDir::new("testing").unwrap();
     // TODO: this should run off-thread, and asynchronously
     future::ok(ProcessResult(
-      process_executor::local::run_command_locally(request)
-        .unwrap(),
+      process_executor::local::run_command_locally(
+        request,
+        tmpdir.path(),
+      ).unwrap(),
     )).to_boxed()
   }
 }

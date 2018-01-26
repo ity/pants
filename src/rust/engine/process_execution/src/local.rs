@@ -1,6 +1,7 @@
 extern crate tempdir;
 
 use std::io::Error;
+use std::path::Path;
 use std::process::Command;
 use self::tempdir::TempDir;
 
@@ -9,10 +10,14 @@ use super::{ExecuteProcessRequest, ExecuteProcessResult};
 ///
 /// Runs a command on this machine in the pwd.
 ///
-pub fn run_command_locally(req: ExecuteProcessRequest) -> Result<ExecuteProcessResult, Error> {
+pub fn run_command_locally(
+  req: ExecuteProcessRequest,
+  dir: &Path,
+) -> Result<ExecuteProcessResult, Error> {
+  println!("executing in dir: {:?}", &dir);
   Command::new(&req.argv[0])
     .args(&req.argv[1..])
-    .current_dir("testing")
+    .current_dir(dir)
     .env_clear()
     // It would be really nice not to have to manually set PATH but this is sadly the only way
     // to stop automatic PATH searching.
