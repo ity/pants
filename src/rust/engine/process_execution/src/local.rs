@@ -12,7 +12,7 @@ use super::{ExecuteProcessRequest, ExecuteProcessResult};
 pub fn run_command_locally(req: ExecuteProcessRequest) -> Result<ExecuteProcessResult, Error> {
   Command::new(&req.argv[0])
     .args(&req.argv[1..])
-    .current_dir("")
+    .current_dir("testing")
     .env_clear()
     // It would be really nice not to have to manually set PATH but this is sadly the only way
     // to stop automatic PATH searching.

@@ -266,8 +266,10 @@ impl Select {
   /// given subject and variants.
   ///
   fn gen_nodes(&self, context: &Context) -> Vec<NodeFuture<Value>> {
+    println!("product hooks");
     // TODO: These `product==` hooks are hacky.
     if self.product() == &context.core.types.snapshot {
+      println!("snapshot");
       // If the requested product is a Snapshot, execute a Snapshot Node and then lower to a Value
       // for this caller.
       let context = context.clone();
@@ -280,6 +282,7 @@ impl Select {
           .to_boxed(),
       ]
     } else if self.product() == &context.core.types.files_content {
+      println!("files_content");
       // If the requested product is FilesContent, request a Snapshot and lower it as FilesContent.
       let context = context.clone();
       vec![
@@ -294,7 +297,8 @@ impl Select {
           .to_boxed(),
       ]
     } else if self.product() == &context.core.types.process_result {
-      print!("in here");
+      println!("process_result");
+      println!("in here");
       let value = externs::val_for_id(self.subject.id());
       let mut env: BTreeMap<String, String> = BTreeMap::new();
       let env_var_parts = externs::project_multi_strs(&value, "env");
@@ -309,12 +313,12 @@ impl Select {
         argv: externs::project_multi_strs(&value, "argv"),
         env: env,
       };
-      //let t = self.get_snapshot(&context);
-      print!("trying to compute");
-      //let tmpdir = TempDir::new("testing").unwrap();
-      print!("computed tmpdir");
+      //let t = self.get_snapshot(&context)?;
+      println!("trying to compute");
+      let tmpdir = TempDir::new("testing").unwrap();
+      println!("computed tmpdir, {:?}", &tmpdir);
       //print!("{:?}", tmpdir.path());
-      //print!("{:?}", t);
+      //print!("{:?}", &t);
       //let tmpdir = t.safe_create_tmpdir_in("root", "tmp")?;
       //print!("{0}", tmpdir);
       // TODO: this should run off-thread, and asynchronously
@@ -775,6 +779,7 @@ impl Node for ExecuteProcess {
 
   fn run(self, _: Context) -> NodeFuture<ProcessResult> {
     let request = self.0.clone();
+    print!("this is");
     //let tmpdir = TempDir::new("root").unwrap();
     // TODO: this should run off-thread, and asynchronously
     future::ok(ProcessResult(
