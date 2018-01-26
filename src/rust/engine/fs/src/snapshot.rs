@@ -1,6 +1,8 @@
 // Copyright 2017 Pants project contributors (see CONTRIBUTORS.md).
 // Licensed under the Apache License, Version 2.0 (see LICENSE).
 
+extern crate tempdir;
+
 use bazel_protos;
 use boxfuture::{Boxable, BoxFuture};
 use bytes::Bytes;
@@ -8,13 +10,14 @@ use futures::Future;
 use futures::future::join_all;
 use hashing::Digest;
 use itertools::Itertools;
-use {File, FileContent, PathStat, Store};
+use {File, FileContent, Path, PathStat, Store};
 use protobuf;
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use tempdir::TempDir;
+use std::{fmt, fs};
 
 #[derive(Clone, PartialEq)]
 pub struct Snapshot {
@@ -262,6 +265,19 @@ fn osstring_as_utf8(path: OsString) -> Result<String, String> {
   path.into_string().map_err(|p| {
     format!("{:?}'s file_name is not representable in UTF8", p)
   })
+}
+
+fn safe_create_dir_all(path: &Path) -> Result<(), String> {
+  fs::create_dir_all(path).map_err(|e| {
+    format!("Failed to create dir {:?} due to {:?}", path, e)
+  })
+}
+
+fn safe_create_tmpdir(base_dir: &Path, prefix: &str) -> Result<TempDir, String> {
+  safe_create_dir_all(&base_dir)?;
+  Ok(TempDir::new_in(&base_dir, prefix).map_err(|e| {
+    format!("Failed to create tempdir {:?} due to {:?}", base_dir, e)
+  })?)
 }
 
 #[cfg(test)]

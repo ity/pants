@@ -165,6 +165,7 @@ class IsolatedProcessTest(SchedulerTestBase, unittest.TestCase):
     self.assertEqual(0, result.exit_code)
     self.assertIn('javac', result.stderr)
 
+  @unittest.skip
   def test_javac_compilation_example(self):
     sources = PathGlobs.create('', include=['scheduler_inputs/src/java/simple/Simple.java'])
 
@@ -189,6 +190,7 @@ class IsolatedProcessTest(SchedulerTestBase, unittest.TestCase):
     self.assertIsInstance(classpath_entry, ClasspathEntry)
     self.assertTrue(os.path.exists(os.path.join(classpath_entry.path, 'simple', 'Simple.class')))
 
+  @unittest.skip
   def test_javac_compilation_example_rust(self):
     sources = PathGlobs.create('', include=['scheduler_inputs/src/java/simple/Simple.java'])
 
@@ -210,6 +212,7 @@ class IsolatedProcessTest(SchedulerTestBase, unittest.TestCase):
     self.assertIsInstance(classpath_entry, ClasspathEntry)
     self.assertTrue(os.path.exists(os.path.join(classpath_entry.path, 'simple', 'Simple.class')))
 
+  @unittest.skip
   def test_failed_command_propagates_throw(self):
     scheduler = self.mk_scheduler_in_example_fs([
       # subject to files / product of subject to files for snapshot.

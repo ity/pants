@@ -1,6 +1,8 @@
 // Copyright 2017 Pants project contributors (see CONTRIBUTORS.md).
 // Licensed under the Apache License, Version 2.0 (see LICENSE).
 
+extern crate tempdir;
+
 use std::error::Error;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
@@ -19,6 +21,7 @@ use process_execution as process_executor;
 use hashing;
 use rule_graph;
 use selectors::{self, Selector};
+use self::tempdir::TempDir;
 use tasks;
 
 
@@ -291,6 +294,7 @@ impl Select {
           .to_boxed(),
       ]
     } else if self.product() == &context.core.types.process_result {
+      print!("in here");
       let value = externs::val_for_id(self.subject.id());
       let mut env: BTreeMap<String, String> = BTreeMap::new();
       let env_var_parts = externs::project_multi_strs(&value, "env");
@@ -305,6 +309,14 @@ impl Select {
         argv: externs::project_multi_strs(&value, "argv"),
         env: env,
       };
+      //let t = self.get_snapshot(&context);
+      print!("trying to compute");
+      //let tmpdir = TempDir::new("testing").unwrap();
+      print!("computed tmpdir");
+      //print!("{:?}", tmpdir.path());
+      //print!("{:?}", t);
+      //let tmpdir = t.safe_create_tmpdir_in("root", "tmp")?;
+      //print!("{0}", tmpdir);
       // TODO: this should run off-thread, and asynchronously
       // TODO: request the Node that invokes the process, rather than invoke directly
       let result = process_executor::local::run_command_locally(request).unwrap();
@@ -763,6 +775,7 @@ impl Node for ExecuteProcess {
 
   fn run(self, _: Context) -> NodeFuture<ProcessResult> {
     let request = self.0.clone();
+    //let tmpdir = TempDir::new("root").unwrap();
     // TODO: this should run off-thread, and asynchronously
     future::ok(ProcessResult(
       process_executor::local::run_command_locally(request)
