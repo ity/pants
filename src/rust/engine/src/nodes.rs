@@ -319,7 +319,6 @@ impl Select {
       let tmpdir = TempDir::new("testing").unwrap();
       println!("computed tmpdir, {:?}", &tmpdir.path());
       //print!("{:?}", tmpdir.path());
-      //print!("{:?}", &t);
       //let tmpdir = t.safe_create_tmpdir_in("root", "tmp")?;
       //print!("{0}", tmpdir);
       // TODO: this should run off-thread, and asynchronously
@@ -780,6 +779,8 @@ impl Node for ExecuteProcess {
 
   fn run(self, _: Context) -> NodeFuture<ProcessResult> {
     let request = self.0.clone();
+    //let path_globs = context.core.types.path_globs.clone();
+    //print!("path_globs:{0}", path_globs);
     let tmpdir = TempDir::new("testing").unwrap();
     // TODO: this should run off-thread, and asynchronously
     future::ok(ProcessResult(
