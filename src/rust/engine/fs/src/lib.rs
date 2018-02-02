@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 mod snapshot;
-pub use snapshot::{Snapshot, StoreFileByDigest};
+pub use snapshot::{EMPTY_DIGEST, Snapshot, StoreFileByDigest};
 mod store;
 pub use store::Store;
 mod pool;

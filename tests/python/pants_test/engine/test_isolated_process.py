@@ -88,14 +88,15 @@ def process_request_from_java_sources(binary):
   env = []
   return ExecuteProcessRequest(
     argv=binary.prefix_of_command() + ('-version',),
+    input_files=None,
     env=env)
 
 def process_request_java_args_from_java_sources(binary, sources_snapshot, out_dir):
   env = []
   return ExecuteProcessRequest(
-    argv=binary.prefix_of_command() +
-         #('-d', out_dir.path) +
-         tuple(f.path for f in sources_snapshot.files),
+    argv=binary.prefix_of_command() + tuple(f.path for f in sources_snapshot.files),
+    input_files=str(sources_snapshot.fingerprint),
+    digest_length=str(sources_snapshot.digest_length),
     env=env)
 
 class ClasspathEntry(datatype('ClasspathEntry', ['path'])):
@@ -147,6 +148,7 @@ class IsolatedProcessTest(SchedulerTestBase, unittest.TestCase):
 
     self.assertEqual(Concatted('one\ntwo\n'), concatted)
 
+  @unittest.skip
   def test_javac_version_example(self):
     sources = PathGlobs.create('', include=['inputs/src/java/simple/Simple.java'])
     scheduler = self.mk_scheduler_in_example_fs([
@@ -232,6 +234,26 @@ class IsolatedProcessTest(SchedulerTestBase, unittest.TestCase):
     self.assertEquals(1, len(root_entries))
     self.assertFirstEntryIsThrow(root_entries,
                                  in_msg='Running ShellFailCommand failed with non-zero exit code: 1')
+
+  @unittest.skip
+  def test_failed_command_propagates_throw_rust(self):
+    scheduler = self.mk_scheduler_in_example_fs([
+      # subject to files / product of subject to files for snapshot.
+      SnapshottedProcess.create(product_type=Concatted,
+        binary_type=ShellFailCommand,
+        input_selectors=tuple(),
+        input_conversion=empty_process_request,
+        output_conversion=fail_process_result),
+      SingletonRule(ShellFailCommand, ShellFailCommand()),
+    ])
+
+    request = scheduler.execution_request([Concatted],
+      [PathGlobs.create('', include=['fs_test/a/b/*'])])
+    root_entries = scheduler.execute(request).root_products
+
+    self.assertEquals(1, len(root_entries))
+    self.assertFirstEntryIsThrow(root_entries,
+      in_msg='Running ShellFailCommand failed with non-zero exit code: 1')
 
   @unittest.skip
   def test_failed_output_conversion_propagates_throw(self):

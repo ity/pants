@@ -4,7 +4,10 @@ use bytes::Bytes;
 use futures::{Future, future};
 use hashing::Digest;
 use protobuf::core::Message;
-use std::path::Path;
+use std;
+use std::fs::File;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,6 +30,12 @@ const MAX_LOCAL_STORE_SIZE_BYTES: usize = 4 * 1024 * 1024 * 1024;
 pub struct Store {
   local: local::ByteStore,
   remote: Option<remote::ByteStore>,
+}
+
+#[derive(Debug)]
+enum ExitCode {
+  UnknownError = 1,
+  NotFound = 2,
 }
 
 // Note that Store doesn't implement ByteStore because it operates at a higher level of abstraction,
@@ -237,6 +246,80 @@ impl Store {
       Err(err) => return Err(format!("Garbage collection failed: {:?}", err)),
     };
     Ok(())
+  }
+
+  pub fn materialize_directory(
+    &self,
+    destination: PathBuf,
+    digest: Digest,
+  ) -> BoxFuture<(), String> {
+    let mkdir = Store::make_clean_dir(&destination).map_err(|e| {
+      format!(
+        "Error making directory {:?}: {:?}",
+        destination,
+        e,
+      ).into()
+    });
+    match mkdir {
+      Ok(()) => {}
+      Err(e) => return future::err(e).to_boxed(),
+    };
+    let store = self.clone();
+    self
+      .load_directory(digest)
+      .and_then(move |directory_opt| {
+        directory_opt.ok_or_else(|| format!("Directory with digest {:?} not found", digest))
+      })
+      .and_then(move |directory| {
+        let file_futures = directory
+          .get_files()
+          .iter()
+          .map(|file_node| {
+            let store = store.clone();
+            let path = destination.join(file_node.get_name());
+            let digest: Digest = file_node.get_digest().into();
+            store.materialize_file(path, digest)
+          })
+          .collect::<Vec<_>>();
+        let directory_futures = directory
+          .get_directories()
+          .iter()
+          .map(|directory_node| {
+            let store = store.clone();
+            let path = destination.join(directory_node.get_name());
+            let digest: Digest = directory_node.get_digest().into();
+            store.materialize_directory(path, digest)
+          })
+          .collect::<Vec<_>>();
+        future::join_all(file_futures)
+          .join(future::join_all(directory_futures))
+          .map(|_| ())
+      })
+      .to_boxed()
+  }
+
+  fn materialize_file(&self, destination: PathBuf, digest: Digest) -> BoxFuture<(), String> {
+    self
+      .load_file_bytes_with(digest, move |bytes| {
+        File::create(&destination)
+          .and_then(|mut f| f.write_all(&bytes))
+          .map_err(|e| format!("Error writing file {:?}: {:?}", destination, e))
+      })
+      .map_err(|e| e.into())
+      .and_then(move |write_result| match write_result {
+        Some(Ok(())) => Ok(()),
+        Some(Err(e)) => Err(e.into()),
+        None => Err(format!("File with digest {:?} not found", digest)),
+      })
+      .to_boxed()
+  }
+
+  fn make_clean_dir(path: &Path) -> Result<(), io::Error> {
+    let parent = path.parent().ok_or_else(|| {
+      io::Error::new(io::ErrorKind::NotFound, format!("{:?} had no parent", path))
+    })?;
+    std::fs::create_dir_all(parent)?;
+    std::fs::create_dir_all(path)
   }
 }
 

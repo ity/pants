@@ -55,7 +55,7 @@ const EMPTY_FINGERPRINT: Fingerprint = Fingerprint(
     0x55,
   ],
 );
-const EMPTY_DIGEST: Digest = Digest(EMPTY_FINGERPRINT, 0);
+pub const EMPTY_DIGEST: Digest = Digest(EMPTY_FINGERPRINT, 0);
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub struct Snapshot {

@@ -4,6 +4,7 @@ extern crate bytes;
 extern crate digest;
 extern crate fs;
 extern crate grpcio;
+extern crate hashing;
 #[cfg(test)]
 extern crate mock;
 extern crate protobuf;
@@ -38,7 +39,7 @@ pub struct ExecuteProcessRequest {
   ///
   pub env: BTreeMap<String, String>,
 
-  pub input_files: fs::Snapshot,
+  pub input_files: hashing::Digest,
 }
 
 ///

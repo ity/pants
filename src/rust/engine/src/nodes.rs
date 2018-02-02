@@ -1,6 +1,7 @@
 // Copyright 2017 Pants project contributors (see CONTRIBUTORS.md).
 // Licensed under the Apache License, Version 2.0 (see LICENSE).
 
+extern crate bazel_protos;
 extern crate tempdir;
 
 use std::error::Error;
@@ -298,8 +299,9 @@ impl Select {
       ]
     } else if self.product() == &context.core.types.process_result {
       println!("process_result");
-      println!("in here");
       let value = externs::val_for_id(self.subject.id());
+      println!("value: {:?}", &value);
+
       let mut env: BTreeMap<String, String> = BTreeMap::new();
       let env_var_parts = externs::project_multi_strs(&value, "env");
       // TODO: Error if env_var_parts.len() % 2 != 0
@@ -309,15 +311,35 @@ impl Select {
           env_var_parts[2 * i + 1].clone(),
         );
       }
+      let fingerprint = externs::project_str(&value, "input_files");
+      let digest_length = externs::project_str(&value, "digest_length");
+      let digest_length_as_usize = digest_length.parse::<usize>().unwrap();
+      let digest = hashing::Digest(
+        hashing::Fingerprint::from_hex_string(&fingerprint).unwrap(),
+        digest_length_as_usize,
+      );
+      //let dir = context.core.store.load_directory(digest).wait().unwrap().unwrap();
+
+      println!("path: {:?}", digest);
+      //let input_files = fs::Snapshot::from_path_stats(
+      //  context.core.store.clone(), context.clone(), path_stats);
+      //.map_err(move |e| format!("Snapshot failed: {}", e))
+      //.to_boxed();
       let request = process_executor::ExecuteProcessRequest {
         argv: externs::project_multi_strs(&value, "argv"),
         env: env,
-        input_files: fs::Snapshot::empty(),
+        input_files: digest,
       };
       println!("{:?}", &request);
       //let t = self.get_snapshot(&context)?;
       println!("trying to compute");
       let tmpdir = TempDir::new("testing").unwrap();
+      let contents = context
+        .core
+        .store
+        .materialize_directory(tmpdir.path().to_owned(), digest)
+        .wait()
+        .unwrap();
       println!("computed tmpdir, {:?}", &tmpdir.path());
       //print!("{:?}", tmpdir.path());
       //let tmpdir = t.safe_create_tmpdir_in("root", "tmp")?;
@@ -955,7 +977,8 @@ impl Snapshot {
     externs::invoke_unsafe(
       &context.core.types.construct_snapshot,
       &vec![
-        externs::store_bytes(&(item.digest.0).0),
+        externs::store_bytes(&(item.digest.0).to_hex().as_bytes()),
+        externs::store_i32((item.digest.1 as i32)),
         externs::store_list(path_stats.iter().collect(), false),
       ],
     )
