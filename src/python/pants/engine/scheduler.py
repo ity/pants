@@ -28,9 +28,8 @@ from pants.engine.selectors import Select, constraint_for
 from pants.rules.core.exceptions import GracefulTerminationException
 from pants.util.contextutil import temporary_file_path
 from pants.util.dirutil import check_no_overlapping_paths
-from pants.util.objects import Collection, datatype
+from pants.util.objects import Collection, datatype, Exactly
 from pants.util.strutil import pluralize
-
 
 
 
@@ -80,10 +79,13 @@ class ExecutionError(Exception):
     super(ExecutionError, self).__init__(message)
     self.wrapped_exceptions = wrapped_exceptions or ()
 
-class Params(datatype([('specs', Specs), ('options', OptionsParseRequest)])):
-  """Params datatype represent a series of type-keyed parameters."""
+class Params(datatype([
+  ('specs', Specs),
+  ('options', Exactly(OptionsParseRequest, type(None)))
+])):
+  """Params datatype represents a series of type-keyed parameters."""
 
-  def __new__(cls, specs, options):
+  def __new__(cls, specs, options=None):
     # TODO: add validation here
     return super(Params, cls).__new__(cls, specs=specs, options=options)
 
@@ -576,14 +578,14 @@ class SchedulerSession(object):
     if unknown_state_types:
       State.raise_unrecognized(unknown_state_types)
 
-  def products_request(self, products, subjects):
+  def products_request(self, products, params):
     """Executes a request for multiple products for some subjects, and returns the products.
 
     :param list products: A list of product type for the request.
-    :param list subjects: A list of subjects for the request.
+    :param list params: A list of Params for the request.
     :returns: A dict from product type to lists of products each with length matching len(subjects).
     """
-    request = self.execution_request(products, subjects)
+    request = self.execution_request(products, [params[0]])
     result = self.execute(request)
     if result.error:
       raise result.error

@@ -30,9 +30,6 @@ impl Params {
   }
 
   pub fn new_single(param: Key) -> Params {
-    print!("lala {:?}", param);
-
-    print!("lili {:?}", Params(smallvec![param]));
     Params(smallvec![param])
   }
 

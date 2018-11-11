@@ -198,7 +198,7 @@ class EngineTest(unittest.TestCase, SchedulerTestBase):
 
     # No rules are available to compute A.
     with self.assertRaises(Exception) as cm:
-      list(scheduler.product_request(A, subjects=[(B())]))
+      list(scheduler.product_request(A, params=[Params(specs=[(B())])))
 
     self.assert_equal_with_printing('No installed rules can satisfy Select(A) for a root subject of type B.', str(cm.exception))
 

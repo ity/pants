@@ -13,8 +13,10 @@ from pants.backend.graph_info.subsystems.cloc_binary import ClocBinary
 from pants.base.workunit import WorkUnitLabel
 from pants.engine.fs import FilesContent, PathGlobs, PathGlobsAndRoot
 from pants.engine.isolated_process import ExecuteProcessRequest
+from pants.engine.scheduler import Params
 from pants.task.console_task import ConsoleTask
 from pants.util.contextutil import temporary_dir
+
 
 
 class CountLinesOfCode(ConsoleTask):
@@ -84,7 +86,7 @@ class CountLinesOfCode(ConsoleTask):
 
     files_content_tuple = self.context._scheduler.product_request(
       FilesContent,
-      [exec_result.output_directory_digest]
+      [Params(exec_result.output_directory_digest)]
     )[0].dependencies
 
     files_content = {fc.path: fc.content.decode('utf-8') for fc in files_content_tuple}
