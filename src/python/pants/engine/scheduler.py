@@ -76,6 +76,11 @@ class ExecutionError(Exception):
     super(ExecutionError, self).__init__(message)
     self.wrapped_exceptions = wrapped_exceptions or ()
 
+class Params(datatype([('keys', tuple)])):
+  """Params datatype represent a series of type-keyed parameters."""
+
+  def __new__(cls, keys):
+    return super(Params, cls).__new__(cls, keys=keys)
 
 class Scheduler(object):
   def __init__(
@@ -540,6 +545,9 @@ class SchedulerSession(object):
     :param v2_ui: whether to render the v2 engine UI
     :return: A dict from product type to lists of products each with length matching len(subjects).
     """
+    print("-"*10)
+    print(subject)
+    print(product)
     request = self.execution_request([product], [subject], v2_ui)
     result = self.execute(request)
     if result.error:
@@ -595,9 +603,12 @@ class SchedulerSession(object):
     """Executes a request for a single product for some subjects, and returns the products.
 
     :param class product: A product type for the request.
-    :param list subjects: A list of subjects for the request.
+    :param list subjects: A list of typed Objects.
     :returns: A list of the requested products, with length match len(subjects).
     """
+    print("*"*10)
+    print(subjects)
+    print(product)
     return self.products_request([product], subjects)[product]
 
   def capture_snapshots(self, path_globs_and_roots):

@@ -204,15 +204,18 @@ class LegacyBuildGraph(BuildGraph):
       return
     dependencies = tuple(SingleAddress(a.spec_path, a.target_name) for a in addresses)
     specs = [Specs(dependencies=tuple(dependencies))]
+    logger.debug('Injecting addresses closure to %s: %s', self, specs)
     for _ in self._inject_specs(specs):
       pass
 
   def inject_roots_closure(self, target_roots, fail_fast=None):
+    logger.debug('Injecting roots closure to %s: %s', self, target_roots.specs)
     for address in self._inject_specs(target_roots.specs):
       yield address
 
   def inject_specs_closure(self, specs, fail_fast=None):
     specs = [Specs(dependencies=tuple(specs))]
+    logger.debug('Injecting specs closure to %s: %s', self, specs)
     # Request loading of these specs.
     for address in self._inject_specs(specs):
       yield address

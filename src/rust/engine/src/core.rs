@@ -24,7 +24,15 @@ pub type FNV = hash::BuildHasherDefault<FnvHasher>;
 pub struct Params(SmallVec<[Key; 4]>);
 
 impl Params {
+  pub fn new_params(params: SmallVec<[Key; 4]>) -> Params {
+    // TODO: validate input Key types are distinct TypeId(s); fail if non-distinct
+    Params(params)
+  }
+
   pub fn new_single(param: Key) -> Params {
+    print!("lala {:?}", param);
+
+    print!("lili {:?}", Params(smallvec![param]));
     Params(smallvec![param])
   }
 
