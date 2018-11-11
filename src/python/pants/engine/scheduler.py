@@ -14,11 +14,13 @@ from types import GeneratorType
 
 from pants.base.exceptions import TaskError
 from pants.base.project_tree import Dir, File, Link
+from pants.base.specs import Specs
 from pants.build_graph.address import Address
 from pants.engine.fs import (Digest, DirectoryToMaterialize, FileContent, FilesContent,
                              MergedDirectories, Path, PathGlobs, PathGlobsAndRoot, Snapshot,
                              UrlToFetch)
 from pants.engine.isolated_process import ExecuteProcessRequest, FallibleExecuteProcessResult
+from pants.engine.legacy.options_parsing import OptionsParseRequest
 from pants.engine.native import Function, TypeConstraint, TypeId
 from pants.engine.nodes import Return, State, Throw
 from pants.engine.rules import RuleIndex, SingletonRule, TaskRule
@@ -28,6 +30,8 @@ from pants.util.contextutil import temporary_file_path
 from pants.util.dirutil import check_no_overlapping_paths
 from pants.util.objects import Collection, datatype
 from pants.util.strutil import pluralize
+
+
 
 
 logger = logging.getLogger(__name__)
@@ -76,11 +80,12 @@ class ExecutionError(Exception):
     super(ExecutionError, self).__init__(message)
     self.wrapped_exceptions = wrapped_exceptions or ()
 
-class Params(datatype([('keys', tuple)])):
+class Params(datatype([('specs', Specs), ('options', OptionsParseRequest)])):
   """Params datatype represent a series of type-keyed parameters."""
 
-  def __new__(cls, keys):
-    return super(Params, cls).__new__(cls, keys=keys)
+  def __new__(cls, specs, options):
+    # TODO: add validation here
+    return super(Params, cls).__new__(cls, specs=specs, options=options)
 
 class Scheduler(object):
   def __init__(
@@ -599,17 +604,17 @@ class SchedulerSession(object):
       product_results[product].append(state.value)
     return product_results
 
-  def product_request(self, product, subjects):
+  def product_request(self, product, params):
     """Executes a request for a single product for some subjects, and returns the products.
 
     :param class product: A product type for the request.
-    :param list subjects: A list of typed Objects.
+    :param list params: A list of Params Objects.
     :returns: A list of the requested products, with length match len(subjects).
     """
-    print("*"*10)
-    print(subjects)
+    print("*"*100)
+    print(params)
     print(product)
-    return self.products_request([product], subjects)[product]
+    return self.products_request([product], params)[product]
 
   def capture_snapshots(self, path_globs_and_roots):
     """Synchronously captures Snapshots for each matching PathGlobs rooted at a its root directory.
